@@ -1,0 +1,34 @@
+VALIDATION SAMPLE ANALYSIS
+==============================
+
+TOP NORMAL FRAMES (Lowest Reconstruction Errors):
+--------------------------------------------------
+Frame 512: Error = 0.001891
+Frame 515: Error = 0.001918
+Frame 510: Error = 0.001921
+Frame 511: Error = 0.001924
+Frame 516: Error = 0.001945
+Frame 518: Error = 0.001947
+Frame 514: Error = 0.001948
+Frame 517: Error = 0.001949
+Frame 513: Error = 0.001964
+Frame 521: Error = 0.002020
+
+TOP ANOMALOUS FRAMES (Highest Reconstruction Errors):
+-------------------------------------------------------
+Frame 636: Error = 0.005983
+Frame 639: Error = 0.005958
+Frame 630: Error = 0.005810
+Frame 637: Error = 0.005810
+Frame 629: Error = 0.005771
+Frame 635: Error = 0.005744
+Frame 626: Error = 0.005721
+Frame 627: Error = 0.005710
+Frame 633: Error = 0.005687
+Frame 632: Error = 0.005680
+
+INTERPRETATION GUIDE:
+--------------------
+• Lower errors = More 'normal' according to the model
+• Higher errors = More 'anomalous' according to the model
+• Review frames manually to validate model decisions

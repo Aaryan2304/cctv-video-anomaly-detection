@@ -1,0 +1,50 @@
+# Core deep learning and computer vision
+torch>=2.0.0
+torchvision>=0.15.0
+opencv-python-headless>=4.8.0
+numpy>=1.21.0
+Pillow>=9.0.0
+
+# Data processing and analysis
+pandas>=1.5.0
+scikit-learn>=1.3.0
+scipy>=1.7.0
+
+# Visualization
+matplotlib>=3.5.0
+seaborn>=0.11.0
+plotly>=5.0.0
+
+# Image augmentation
+albumentations>=1.1.0
+
+# Progress tracking and utilities
+tqdm>=4.64.0
+click>=8.0.0
+
+# Configuration and logging
+pyyaml>=5.4.0
+python-dotenv>=0.19.0
+
+# FastAPI and Web Framework (for deployment)
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+python-multipart>=0.0.6
+python-jose[cryptography]>=3.3.0
+
+# Production
+gunicorn>=21.0.0
+
+# Development and testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+httpx>=0.24.0
+black>=21.0.0
+flake8>=3.9.0
+
+# Optional: For Jupyter notebook analysis
+jupyter>=1.0.0
+ipywidgets>=7.6.0
+
+# Optional: For advanced metrics and statistical tests
+statsmodels>=0.12.0
