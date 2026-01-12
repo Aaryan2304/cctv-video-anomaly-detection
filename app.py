@@ -1,62 +1,61 @@
 """
 FastAPI web service for video anomaly detection.
+
+Production-grade implementation with:
+- Pydantic settings for configuration
+- Structured JSON logging
+- Input validation (file size, duration, format)
+- Thread pool for non-blocking inference
+- Batched frame processing
 """
 
-import os
+import asyncio
 import io
+import os
 import tempfile
-import zipfile
-from typing import List, Optional, Dict, Any
-import numpy as np
-import cv2
-import torch
-from PIL import Image
-import uvicorn
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-# Import our models
+import cv2
+import numpy as np
+import torch
+import uvicorn
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from PIL import Image
+from pydantic import BaseModel
+
+from data.preprocessing import VideoPreprocessor
 from models.autoencoder import ConvolutionalAutoencoder
 from models.detector import AnomalyDetector
-from data.preprocessing import VideoPreprocessor
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Initialize FastAPI app
-app = FastAPI(
-    title="Video Anomaly Detection API",
-    description="Real-time video anomaly detection using unsupervised learning",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
+from settings import Settings, get_settings
+from utils.logging_utils import (
+    configure_logging,
+    get_logger,
+    log_inference,
+    log_request,
+    log_response,
+    set_request_id,
 )
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-# Serve static files
-os.makedirs("static", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Module-level state
+_detector: Optional[AnomalyDetector] = None
+_device: Optional[torch.device] = None
+_preprocessor: Optional[VideoPreprocessor] = None
+_executor: Optional[ThreadPoolExecutor] = None
+_settings: Optional[Settings] = None
 
-# Global variables for model
-detector = None
-device = None
-preprocessor = None
+logger = get_logger(__name__)
 
+
+# Response models
 class AnomalyResult(BaseModel):
-    """Response model for anomaly detection results"""
     frame_count: int
     anomaly_count: int
     anomaly_rate: float
@@ -65,133 +64,517 @@ class AnomalyResult(BaseModel):
     processing_time: float
     model_info: Dict[str, Any]
 
+
 class HealthResponse(BaseModel):
-    """Health check response"""
     status: str
     model_loaded: bool
     device: str
     version: str
+    settings: Optional[Dict[str, Any]] = None
 
-def load_model():
-    """Load the trained anomaly detection model"""
-    global detector, device, preprocessor
+
+class ValidationError(BaseModel):
+    detail: str
+    field: Optional[str] = None
+    limit: Optional[Any] = None
+
+
+def _load_model(settings: Settings) -> bool:
+    """Load trained model. Called once at startup."""
+    global _detector, _device, _preprocessor
     
     try:
-        # Setup device
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        logger.info(f"Using device: {device}")
+        _device = settings.torch_device
+        logger.info(f"Initializing on device: {_device}")
         
-        # Load model
-        model_path = "outputs/trained_model.pth"
-        if not os.path.exists(model_path):
-            logger.warning("No trained model found. Creating new model...")
-            # Create a new model if no trained model exists
-            model = ConvolutionalAutoencoder(input_channels=1, latent_dim=256)
-            detector = AnomalyDetector(model, device)
-            # Set a default threshold based on training analysis (98th percentile for real-world use)
-            detector.threshold = 0.005069
+        model_path = Path(settings.model_path)
+        
+        # Create config-compatible object for AnomalyDetector
+        class ConfigCompat:
+            MIXED_PRECISION = settings.mixed_precision
+        
+        config_obj = ConfigCompat()
+        
+        if not model_path.exists():
+            logger.warning(f"No trained model at {model_path}, creating default model")
+            model = ConvolutionalAutoencoder(input_channels=1, latent_dim=settings.latent_dim)
+            _detector = AnomalyDetector(model, _device, config=config_obj)
+            _detector.threshold = 0.005069
         else:
-            logger.info("Loading trained model...")
-            checkpoint = torch.load(model_path, map_location=device)
+            logger.info(f"Loading model from {model_path}")
+            checkpoint = torch.load(model_path, map_location=_device, weights_only=False)
             
-            # Create model
-            model = ConvolutionalAutoencoder(input_channels=1, latent_dim=256)
-            model.load_state_dict(checkpoint['model_state_dict'])
+            model = ConvolutionalAutoencoder(input_channels=1, latent_dim=settings.latent_dim)
+            model.load_state_dict(checkpoint["model_state_dict"])
             
-            # Create detector
-            detector = AnomalyDetector(model, device)
-            # Ensure threshold is never None - use 98th percentile for real-world robustness
-            threshold_value = checkpoint.get('threshold', 0.005069)
-            detector.threshold = threshold_value if threshold_value is not None else 0.005069
+            _detector = AnomalyDetector(model, _device, config=config_obj)
+            _detector.threshold = checkpoint.get("threshold") or 0.005069
             
-            logger.info(f"Model loaded with threshold: {detector.threshold}")
+            logger.info(f"Model loaded, threshold={_detector.threshold:.6f}")
         
-        # Initialize preprocessor
-        preprocessor = VideoPreprocessor(
-            target_size=(64, 64),
-            quality_threshold=0.001
+        _preprocessor = VideoPreprocessor(
+            target_size=settings.frame_shape,
+            quality_threshold=0.001,
         )
         
-        logger.info("Model loaded successfully!")
         return True
         
     except Exception as e:
-        logger.error(f"Error loading model: {str(e)}")
+        logger.exception(f"Model loading failed: {e}")
         return False
 
-def process_video_frames(video_path: str) -> tuple:
-    """Process video frames and detect anomalies"""
+
+def _validate_video_file(
+    filename: str,
+    content_type: str,
+    file_size: int,
+    settings: Settings,
+) -> Optional[ValidationError]:
+    """Validate uploaded video file before processing."""
+    
+    # Check content type
+    if not content_type or not content_type.startswith("video/"):
+        return ValidationError(detail="File must be a video", field="content_type")
+    
+    # Check file extension
+    ext = Path(filename).suffix.lower() if filename else ""
+    if ext not in settings.allowed_extensions_list:
+        return ValidationError(
+            detail=f"Unsupported format. Allowed: {settings.allowed_extensions}",
+            field="extension",
+            limit=settings.allowed_extensions,
+        )
+    
+    # Check file size
+    if file_size > settings.max_file_size_bytes:
+        return ValidationError(
+            detail=f"File exceeds {settings.max_file_size_mb}MB limit",
+            field="file_size",
+            limit=settings.max_file_size_mb,
+        )
+    
+    return None
+
+
+def _validate_video_metadata(video_path: str, settings: Settings) -> Optional[ValidationError]:
+    """Validate video metadata after file is saved."""
+    cap = cv2.VideoCapture(video_path)
+    
+    if not cap.isOpened():
+        return ValidationError(detail="Cannot read video file. File may be corrupted.")
+    
     try:
-        import time
-        start_time = time.time()
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        duration = frame_count / fps if fps > 0 else 0
         
-        # Read video
-        cap = cv2.VideoCapture(video_path)
-        frames = []
+        if frame_count <= 0:
+            return ValidationError(detail="Video contains no readable frames")
         
-        while True:
+        if frame_count > settings.max_frames:
+            return ValidationError(
+                detail=f"Video has {frame_count} frames, max allowed: {settings.max_frames}",
+                field="frame_count",
+                limit=settings.max_frames,
+            )
+        
+        if duration > settings.max_video_duration_sec:
+            return ValidationError(
+                detail=f"Video duration {duration:.1f}s exceeds {settings.max_video_duration_sec}s limit",
+                field="duration",
+                limit=settings.max_video_duration_sec,
+            )
+        
+        return None
+        
+    finally:
+        cap.release()
+
+
+def _process_video_batched(video_path: str, settings: Settings) -> tuple:
+    """
+    Process video with batched inference for 2-3x speedup.
+    
+    Runs in thread pool to avoid blocking the event loop.
+    """
+    start_time = time.perf_counter()
+    
+    cap = cv2.VideoCapture(video_path)
+    frames = []
+    
+    try:
+        while len(frames) < settings.max_frames:
             ret, frame = cap.read()
             if not ret:
                 break
             
-            # Convert to grayscale and resize
-            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            resized_frame = cv2.resize(gray_frame, (64, 64))
-            normalized_frame = resized_frame.astype(np.float32) / 255.0
-            frames.append(normalized_frame)
-        
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            resized = cv2.resize(gray, settings.frame_shape)
+            normalized = resized.astype(np.float32) / 255.0
+            frames.append(normalized)
+    finally:
         cap.release()
+    
+    if not frames:
+        raise ValueError("No frames extracted from video")
+    
+    # Stack and convert to tensor
+    frames_array = np.stack(frames)
+    frames_tensor = torch.from_numpy(frames_array).unsqueeze(1).to(_device)
+    
+    # Batched inference
+    _detector.model.eval()
+    reconstruction_errors = []
+    batch_size = settings.batch_size
+    
+    with torch.no_grad():
+        for i in range(0, len(frames_tensor), batch_size):
+            batch = frames_tensor[i : i + batch_size]
+            
+            if _detector.scaler is not None and _device.type == "cuda":
+                with torch.amp.autocast("cuda"):
+                    reconstructed = _detector.model(batch)
+            else:
+                reconstructed = _detector.model(batch)
+            
+            errors = ((batch - reconstructed) ** 2).mean(dim=[1, 2, 3])
+            reconstruction_errors.extend(errors.cpu().tolist())
+    
+    # Threshold application
+    threshold = _detector.threshold or 0.005069
+    anomaly_flags = [err > threshold for err in reconstruction_errors]
+    anomaly_count = sum(anomaly_flags)
+    
+    processing_time = time.perf_counter() - start_time
+    
+    log_inference(
+        logger.logger,
+        frames=len(frames),
+        anomalies=anomaly_count,
+        duration_sec=processing_time,
+        batch_size=batch_size,
+    )
+    
+    return (len(frames), anomaly_count, reconstruction_errors, anomaly_flags, processing_time)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager."""
+    global _executor, _settings
+    
+    # Startup
+    _settings = get_settings()
+    configure_logging(
+        level=_settings.log_level,
+        format_type=_settings.log_format,
+        log_file=_settings.log_file,
+    )
+    
+    logger.info("Starting Video Anomaly Detection API")
+    
+    _executor = ThreadPoolExecutor(
+        max_workers=_settings.thread_pool_size,
+        thread_name_prefix="inference",
+    )
+    
+    if not _load_model(_settings):
+        logger.error("Model loading failed during startup")
+    
+    # Create directories
+    os.makedirs(_settings.static_dir, exist_ok=True)
+    os.makedirs(_settings.temp_dir, exist_ok=True)
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down API")
+    if _executor:
+        _executor.shutdown(wait=True)
+
+
+# Initialize FastAPI
+app = FastAPI(
+    title="Video Anomaly Detection API",
+    description="Real-time video anomaly detection using unsupervised learning",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def request_middleware(request: Request, call_next):
+    """Add request ID and logging to all requests."""
+    request_id = set_request_id()
+    start_time = time.perf_counter()
+    
+    log_request(logger.logger, request.method, request.url.path)
+    
+    response = await call_next(request)
+    
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    log_response(logger.logger, request.method, request.url.path, response.status_code, duration_ms)
+    
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+# Mount static files after app creation
+@app.on_event("startup")
+async def mount_static():
+    settings = get_settings()
+    if os.path.isdir(settings.static_dir):
+        app.mount("/static", StaticFiles(directory=settings.static_dir), name="static")
+
+
+@app.get("/health", response_model=HealthResponse)
+async def health_check():
+    """Health check endpoint for load balancers and monitoring."""
+    settings = get_settings()
+    return HealthResponse(
+        status="healthy" if _detector else "degraded",
+        model_loaded=_detector is not None,
+        device=str(_device) if _device else "unknown",
+        version="2.0.0",
+        settings={
+            "batch_size": settings.batch_size,
+            "max_file_size_mb": settings.max_file_size_mb,
+            "max_video_duration_sec": settings.max_video_duration_sec,
+        },
+    )
+
+
+@app.post("/analyze-video", response_model=AnomalyResult)
+async def analyze_video(file: UploadFile = File(...)):
+    """
+    Analyze video for anomalies.
+    
+    Validates input, processes frames in batches, returns per-frame scores.
+    """
+    if _detector is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    
+    settings = get_settings()
+    
+    # Read file content
+    content = await file.read()
+    file_size = len(content)
+    
+    # Validate file metadata
+    validation_error = _validate_video_file(
+        filename=file.filename or "",
+        content_type=file.content_type or "",
+        file_size=file_size,
+        settings=settings,
+    )
+    if validation_error:
+        raise HTTPException(status_code=400, detail=validation_error.detail)
+    
+    # Save to temp file
+    suffix = Path(file.filename).suffix if file.filename else ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=settings.temp_dir) as tmp:
+        tmp.write(content)
+        temp_path = tmp.name
+    
+    try:
+        # Validate video metadata
+        validation_error = _validate_video_metadata(temp_path, settings)
+        if validation_error:
+            raise HTTPException(status_code=400, detail=validation_error.detail)
         
-        if not frames:
-            raise ValueError("No frames found in video")
-        
-        # Convert to numpy array first, then to tensor (more efficient)
-        frames_array = np.array(frames)
-        frames_tensor = torch.FloatTensor(frames_array).unsqueeze(1).to(device)
-        
-        # Detect anomalies
-        detector.model.eval()
-        reconstruction_errors = []
-        
-        with torch.no_grad():
-            for frame in frames_tensor:
-                frame_batch = frame.unsqueeze(0)
-                reconstructed = detector.model(frame_batch)
-                error = torch.mean((frame_batch - reconstructed) ** 2).item()
-                reconstruction_errors.append(error)
-        
-        # Apply threshold
-        if detector.threshold is None or detector.threshold <= 0:
-            logger.warning("Invalid threshold detected, using default value")
-            detector.threshold = 0.005069
-        
-        anomaly_flags = [error > detector.threshold for error in reconstruction_errors]
-        anomaly_count = sum(anomaly_flags)
-        
-        processing_time = time.time() - start_time
-        
-        return (
-            len(frames),
-            anomaly_count,
-            reconstruction_errors,
-            anomaly_flags,
-            processing_time
+        # Process in thread pool (non-blocking)
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            _executor,
+            _process_video_batched,
+            temp_path,
+            settings,
         )
         
-    except Exception as e:
-        logger.error(f"Error processing video: {str(e)}")
+        frame_count, anomaly_count, scores, flags, processing_time = result
+        
+        return AnomalyResult(
+            frame_count=frame_count,
+            anomaly_count=anomaly_count,
+            anomaly_rate=anomaly_count / frame_count if frame_count > 0 else 0,
+            anomaly_scores=scores,
+            anomaly_flags=flags,
+            processing_time=processing_time,
+            model_info={
+                "device": str(_device),
+                "threshold": _detector.threshold,
+                "model_parameters": _detector.model.get_model_info()["total_parameters"],
+                "batch_size": settings.batch_size,
+            },
+        )
+        
+    except HTTPException:
         raise
+    except Exception as e:
+        logger.exception(f"Video processing failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
 
-@app.on_event("startup")
-async def startup_event():
-    """Load model on startup"""
-    success = load_model()
-    if not success:
-        logger.error("Failed to load model on startup")
+
+@app.post("/analyze-image", response_model=Dict[str, Any])
+async def analyze_image(file: UploadFile = File(...)):
+    """Analyze single image for anomalies."""
+    if _detector is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    try:
+        content = await file.read()
+        image = Image.open(io.BytesIO(content))
+        
+        if image.mode != "L":
+            image = image.convert("L")
+        
+        settings = get_settings()
+        image = image.resize(settings.frame_shape)
+        frame = np.array(image).astype(np.float32) / 255.0
+        
+        frame_tensor = torch.from_numpy(frame).unsqueeze(0).unsqueeze(0).to(_device)
+        
+        _detector.model.eval()
+        with torch.no_grad():
+            reconstructed = _detector.model(frame_tensor)
+            error = ((frame_tensor - reconstructed) ** 2).mean().item()
+        
+        threshold = _detector.threshold or 0.005069
+        is_anomaly = error > threshold
+        
+        return {
+            "anomaly_score": error,
+            "is_anomaly": is_anomaly,
+            "threshold": threshold,
+            "confidence": min(error / threshold, 2.0) if threshold > 0 else 0,
+        }
+        
+    except Exception as e:
+        logger.exception(f"Image processing failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
+
+
+@app.get("/model-info")
+async def get_model_info():
+    """Get information about the loaded model."""
+    if _detector is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    
+    info = _detector.model.get_model_info()
+    threshold = _detector.threshold or 0.005069
+    
+    return {
+        "model_architecture": info,
+        "threshold": threshold,
+        "device": str(_device),
+        "status": "loaded",
+        "threshold_presets": {
+            "conservative": 0.004213,
+            "balanced": 0.004005,
+            "moderate": 0.003706,
+            "sensitive": 0.003357,
+        },
+    }
+
+
+@app.post("/set-threshold")
+async def set_threshold(threshold: float):
+    """Update anomaly detection threshold."""
+    if _detector is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    
+    if threshold <= 0:
+        raise HTTPException(status_code=400, detail="Threshold must be positive")
+    
+    _detector.threshold = threshold
+    logger.info(f"Threshold updated to {threshold:.6f}")
+    
+    return {"message": f"Threshold updated to {threshold}", "new_threshold": threshold}
+
+
+@app.post("/set-threshold-preset")
+async def set_threshold_preset(preset: str):
+    """Set threshold using predefined presets."""
+    if _detector is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    
+    presets = {
+        "conservative": 0.004213,
+        "balanced": 0.004005,
+        "moderate": 0.003706,
+        "sensitive": 0.003357,
+    }
+    
+    if preset not in presets:
+        raise HTTPException(status_code=400, detail=f"Invalid preset. Choose from: {list(presets.keys())}")
+    
+    _detector.threshold = presets[preset]
+    logger.info(f"Threshold set to {preset} preset ({presets[preset]:.6f})")
+    
+    return {
+        "message": f"Threshold set to {preset} preset",
+        "new_threshold": _detector.threshold,
+        "expected_anomaly_rate": {"conservative": "~5%", "balanced": "~10%", "moderate": "~25%", "sensitive": "~50%"}[preset],
+    }
+
+
+@app.post("/calibrate-threshold")
+async def calibrate_threshold(target_anomaly_rate: float):
+    """Calibrate threshold based on target anomaly rate using training data."""
+    if _detector is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    
+    if not 0.01 <= target_anomaly_rate <= 0.95:
+        raise HTTPException(status_code=400, detail="Target anomaly rate must be between 1% and 95%")
+    
+    try:
+        errors_path = Path("outputs/reconstruction_errors.npy")
+        if not errors_path.exists():
+            raise HTTPException(status_code=503, detail="Training errors not found. Cannot auto-calibrate.")
+        
+        reconstruction_errors = np.load(errors_path)
+        target_percentile = 100 * (1 - target_anomaly_rate)
+        calibrated_threshold = float(np.percentile(reconstruction_errors, target_percentile))
+        
+        _detector.threshold = calibrated_threshold
+        actual_rate = float((reconstruction_errors > calibrated_threshold).mean())
+        
+        logger.info(f"Threshold calibrated to {calibrated_threshold:.6f} for {target_anomaly_rate:.1%} target rate")
+        
+        return {
+            "message": "Threshold calibrated successfully",
+            "target_anomaly_rate": target_anomaly_rate,
+            "actual_anomaly_rate": actual_rate,
+            "new_threshold": calibrated_threshold,
+            "percentile_used": target_percentile,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Calibration failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Calibration error: {str(e)}")
+
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """Serve the main interface"""
+    """Serve the main interface."""
     html_content = """
     <!DOCTYPE html>
     <html>
@@ -205,10 +588,11 @@ async def root():
             button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 3px; cursor: pointer; }
             button:hover { background: #0056b3; }
             .loading { display: none; }
+            .error { color: #dc3545; }
         </style>
     </head>
     <body>
-        <h1>🎥 Video Anomaly Detection</h1>
+        <h1>Video Anomaly Detection</h1>
         <p>Upload a video file to detect anomalous events using our trained AI model.</p>
         
         <div class="upload-area">
@@ -221,6 +605,8 @@ async def root():
             <p>Processing video... This may take a few moments.</p>
         </div>
         
+        <div id="error" class="error" style="display: none;"></div>
+        
         <div id="results" class="results" style="display: none;">
             <h3>Analysis Results</h3>
             <div id="metrics"></div>
@@ -232,12 +618,13 @@ async def root():
             const file = fileInput.files[0];
             
             if (!file) {
-                alert('Please select a video file');
+                showError('Please select a video file');
                 return;
             }
             
             document.getElementById('loading').style.display = 'block';
             document.getElementById('results').style.display = 'none';
+            document.getElementById('error').style.display = 'none';
             
             const formData = new FormData();
             formData.append('file', file);
@@ -253,35 +640,31 @@ async def root():
                 if (response.ok) {
                     displayResults(result);
                 } else {
-                    alert('Error: ' + result.detail);
+                    showError(result.detail || 'Unknown error occurred');
                 }
             } catch (error) {
-                alert('Error uploading video: ' + error.message);
+                showError('Network error: ' + error.message);
             }
             
             document.getElementById('loading').style.display = 'none';
         }
         
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+        
         function displayResults(result) {
             const metricsDiv = document.getElementById('metrics');
             metricsDiv.innerHTML = `
-                <div class="metric">
-                    <strong>Total Frames:</strong> ${result.frame_count}
-                </div>
-                <div class="metric">
-                    <strong>Anomalies Detected:</strong> ${result.anomaly_count}
-                </div>
-                <div class="metric">
-                    <strong>Anomaly Rate:</strong> ${(result.anomaly_rate * 100).toFixed(1)}%
-                </div>
-                <div class="metric">
-                    <strong>Processing Time:</strong> ${result.processing_time.toFixed(2)}s
-                </div>
-                <div class="metric">
-                    <strong>Device:</strong> ${result.model_info.device}
-                </div>
+                <div class="metric"><strong>Total Frames:</strong> ${result.frame_count}</div>
+                <div class="metric"><strong>Anomalies Detected:</strong> ${result.anomaly_count}</div>
+                <div class="metric"><strong>Anomaly Rate:</strong> ${(result.anomaly_rate * 100).toFixed(1)}%</div>
+                <div class="metric"><strong>Processing Time:</strong> ${result.processing_time.toFixed(2)}s</div>
+                <div class="metric"><strong>Device:</strong> ${result.model_info.device}</div>
+                <div class="metric"><strong>Batch Size:</strong> ${result.model_info.batch_size}</div>
             `;
-            
             document.getElementById('results').style.display = 'block';
         }
         </script>
@@ -290,302 +673,13 @@ async def root():
     """
     return HTMLResponse(content=html_content)
 
-@app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint"""
-    return HealthResponse(
-        status="healthy",
-        model_loaded=detector is not None,
-        device=str(device) if device else "unknown",
-        version="1.0.0"
-    )
-
-@app.post("/analyze-video", response_model=AnomalyResult)
-async def analyze_video(file: UploadFile = File(...)):
-    """
-    Analyze video for anomalies
-    
-    Upload a video file and get anomaly detection results including:
-    - Frame count
-    - Number of anomalies detected
-    - Anomaly rate
-    - Individual frame scores
-    """
-    if detector is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-    
-    # Validate file type
-    if not file.content_type.startswith('video/'):
-        raise HTTPException(status_code=400, detail="File must be a video")
-    
-    # Save uploaded file temporarily
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
-        content = await file.read()
-        temp_file.write(content)
-        temp_path = temp_file.name
-    
-    try:
-        # Process video
-        frame_count, anomaly_count, scores, flags, processing_time = process_video_frames(temp_path)
-        
-        # Calculate metrics
-        anomaly_rate = anomaly_count / frame_count if frame_count > 0 else 0
-        
-        # Get model info
-        model_info = {
-            "device": str(device),
-            "threshold": detector.threshold,
-            "model_parameters": detector.model.get_model_info()["total_parameters"]
-        }
-        
-        return AnomalyResult(
-            frame_count=frame_count,
-            anomaly_count=anomaly_count,
-            anomaly_rate=anomaly_rate,
-            anomaly_scores=scores,
-            anomaly_flags=flags,
-            processing_time=processing_time,
-            model_info=model_info
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing video: {str(e)}")
-    
-    finally:
-        # Clean up temporary file
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
-
-@app.post("/analyze-image", response_model=Dict[str, Any])
-async def analyze_image(file: UploadFile = File(...)):
-    """
-    Analyze single image for anomalies
-    
-    Upload an image file and get anomaly detection score
-    """
-    if detector is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-    
-    # Validate file type
-    if not file.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
-    
-    try:
-        # Read image
-        content = await file.read()
-        image = Image.open(io.BytesIO(content))
-        
-        # Convert to grayscale and resize
-        if image.mode != 'L':
-            image = image.convert('L')
-        
-        # Resize and normalize
-        image = image.resize((64, 64))
-        frame = np.array(image).astype(np.float32) / 255.0
-        
-        # Convert to tensor
-        frame_tensor = torch.FloatTensor(frame).unsqueeze(0).unsqueeze(0).to(device)
-        
-        # Detect anomaly
-        detector.model.eval()
-        with torch.no_grad():
-            reconstructed = detector.model(frame_tensor)
-            error = torch.mean((frame_tensor - reconstructed) ** 2).item()
-        
-        # Apply threshold
-        if detector.threshold is None or detector.threshold <= 0:
-            logger.warning("Invalid threshold detected, using default value")
-            detector.threshold = 0.005069
-            
-        is_anomaly = error > detector.threshold
-        
-        return {
-            "anomaly_score": error,
-            "is_anomaly": is_anomaly,
-            "threshold": detector.threshold,
-            "confidence": min(error / detector.threshold, 2.0) if detector.threshold > 0 else 0
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
-
-@app.get("/model-info")
-async def get_model_info():
-    """Get information about the loaded model"""
-    if detector is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-    
-    try:
-        info = detector.model.get_model_info()
-        # Ensure threshold is valid
-        threshold = detector.threshold if detector.threshold is not None else 0.004005
-        return {
-            "model_architecture": info,
-            "threshold": threshold,
-            "device": str(device),
-            "status": "loaded",
-            "threshold_presets": {
-                "conservative": 0.004213,  # 95th percentile - 5% anomaly rate
-                "balanced": 0.004005,      # 90th percentile - 10% anomaly rate  
-                "moderate": 0.003706,      # 75th percentile - 25% anomaly rate
-                "sensitive": 0.003357      # 50th percentile - 50% anomaly rate
-            }
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting model info: {str(e)}")
-
-@app.post("/set-threshold")
-async def set_threshold(threshold: float):
-    """Update the anomaly detection threshold"""
-    if detector is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-    
-    if threshold <= 0:
-        raise HTTPException(status_code=400, detail="Threshold must be positive")
-    
-    detector.threshold = threshold
-    return {"message": f"Threshold updated to {threshold}", "new_threshold": threshold}
-
-@app.post("/set-threshold-preset")
-async def set_threshold_preset(preset: str):
-    """Set threshold using predefined presets"""
-    if detector is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-    
-    presets = {
-        "conservative": 0.004213,  # 5% anomaly rate
-        "balanced": 0.004005,      # 10% anomaly rate  
-        "moderate": 0.003706,      # 25% anomaly rate
-        "sensitive": 0.003357      # 50% anomaly rate
-    }
-    
-    if preset not in presets:
-        raise HTTPException(status_code=400, detail=f"Invalid preset. Choose from: {list(presets.keys())}")
-    
-    detector.threshold = presets[preset]
-    return {
-        "message": f"Threshold set to {preset} preset",
-        "new_threshold": detector.threshold,
-        "expected_anomaly_rate": {
-            "conservative": "~5%",
-            "balanced": "~10%", 
-            "moderate": "~25%",
-            "sensitive": "~50%"
-        }[preset]
-    }
-
-@app.post("/calibrate-threshold")
-async def calibrate_threshold(target_anomaly_rate: float):
-    """
-    Automatically calibrate threshold based on target anomaly rate
-    using the training data reconstruction errors
-    """
-    if detector is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-    
-    if not (0.01 <= target_anomaly_rate <= 0.95):
-        raise HTTPException(status_code=400, detail="Target anomaly rate must be between 1% and 95%")
-    
-    try:
-        # Load reconstruction errors from training
-        reconstruction_errors = np.load('outputs/reconstruction_errors.npy')
-        
-        # Calculate the threshold that would give the target anomaly rate
-        target_percentile = 100 * (1 - target_anomaly_rate)
-        calibrated_threshold = np.percentile(reconstruction_errors, target_percentile)
-        
-        # Update the detector threshold
-        detector.threshold = float(calibrated_threshold)
-        
-        # Verify the actual rate this would produce
-        actual_rate = (reconstruction_errors > calibrated_threshold).mean()
-        
-        return {
-            "message": "Threshold calibrated successfully",
-            "target_anomaly_rate": target_anomaly_rate,
-            "actual_anomaly_rate": float(actual_rate),
-            "new_threshold": detector.threshold,
-            "percentile_used": float(target_percentile)
-        }
-        
-    except FileNotFoundError:
-        raise HTTPException(status_code=503, detail="Training reconstruction errors not found. Cannot auto-calibrate.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error during calibration: {str(e)}")
-
-@app.post("/batch-analyze")
-async def batch_analyze_videos(files: List[UploadFile] = File(...)):
-    """
-    Analyze multiple videos for threshold calibration and performance assessment
-    """
-    if detector is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-    
-    results = []
-    all_errors = []
-    
-    for file in files:
-        if not file.content_type.startswith('video/'):
-            continue
-            
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
-            content = await file.read()
-            temp_file.write(content)
-            temp_path = temp_file.name
-        
-        try:
-            # Process video
-            frame_count, anomaly_count, scores, flags, processing_time = process_video_frames(temp_path)
-            all_errors.extend(scores)
-            
-            results.append({
-                "filename": file.filename,
-                "frame_count": frame_count,
-                "anomaly_count": anomaly_count,
-                "anomaly_rate": anomaly_count / frame_count if frame_count > 0 else 0,
-                "avg_error": np.mean(scores),
-                "max_error": max(scores),
-                "min_error": min(scores)
-            })
-            
-        except Exception as e:
-            results.append({
-                "filename": file.filename,
-                "error": str(e)
-            })
-        finally:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-    
-    # Calculate suggested thresholds based on all videos
-    if all_errors:
-        all_errors = np.array(all_errors)
-        suggested_thresholds = {
-            "conservative_5pct": float(np.percentile(all_errors, 95)),
-            "balanced_10pct": float(np.percentile(all_errors, 90)),
-            "moderate_25pct": float(np.percentile(all_errors, 75)),
-            "sensitive_50pct": float(np.percentile(all_errors, 50))
-        }
-    else:
-        suggested_thresholds = {}
-    
-    return {
-        "individual_results": results,
-        "overall_stats": {
-            "total_videos": len(results),
-            "total_frames": sum(r.get("frame_count", 0) for r in results),
-            "avg_error_across_all": float(np.mean(all_errors)) if all_errors else 0,
-            "current_threshold": detector.threshold
-        },
-        "suggested_thresholds": suggested_thresholds
-    }
 
 if __name__ == "__main__":
-    # For local development
+    settings = get_settings()
     uvicorn.run(
         "app:app",
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8000)),
-        reload=True
+        host=settings.host,
+        port=settings.port,
+        reload=settings.debug,
+        workers=1 if settings.debug else settings.workers,
     )
