@@ -1,67 +1,34 @@
 """
-Configuration Management for Video Anomaly Detection
-==================================================
-
-This file centralizes all configuration parameters, making it easy to:
-- Experiment with different hyperparameters
-- Optimize for different hardware configurations
-- Switch between datasets and experiments
-- Maintain reproducible results
-
-Your RTX 3050 optimized settings are included as defaults.
+Configuration management for video anomaly detection.
 """
 
 import torch
 import os
 
+
 class Config:
-    """
-    Centralized configuration for the anomaly detection system.
+    """Hyperparameter and path configuration."""
     
-    This class organizes all hyperparameters and settings in one place,
-    making experimentation and reproducibility much easier.
-    """
-    
-    # ====================================================================
-    # HARDWARE CONFIGURATION (Optimized for RTX 3050)
-    # ====================================================================
-    
-    # Device selection
+    # Hardware
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    BATCH_SIZE = 64
+    NUM_WORKERS = 4
+    PIN_MEMORY = True
+    MIXED_PRECISION = True
     
-    # Memory optimization for RTX 3050 (4GB VRAM)
-    BATCH_SIZE = 64  # Sweet spot for your VRAM
-    NUM_WORKERS = 4  # Utilize your 12th gen i7 cores
-    PIN_MEMORY = True  # Faster GPU transfers
-    
-    # Training efficiency
-    MIXED_PRECISION = True  # Use half-precision for faster training
-    
-    # ====================================================================
-    # MODEL ARCHITECTURE
-    # ====================================================================
-    
-    # Input parameters
-    INPUT_CHANNELS = 1  # Grayscale for efficiency
+    # Model architecture
+    INPUT_CHANNELS = 1
     FRAME_HEIGHT = 64
     FRAME_WIDTH = 64
     FRAME_SIZE = (FRAME_WIDTH, FRAME_HEIGHT)
+    LATENT_DIM = 256
     
-    # Autoencoder architecture
-    LATENT_DIM = 256  # Balanced for performance/accuracy
-    
-    # ====================================================================
-    # TRAINING CONFIGURATION
-    # ====================================================================
-    
-    # Training parameters
+    # Training
     LEARNING_RATE = 0.001
     WEIGHT_DECAY = 1e-5
-    
-    # Epochs (optimized for different scenarios)
-    EPOCHS_SYNTHETIC = 25  # Quick demo
-    EPOCHS_UCSD = 40      # Real dataset
-    EPOCHS_FULL = 50      # Thorough training
+    EPOCHS_SYNTHETIC = 25
+    EPOCHS_UCSD = 40
+    EPOCHS_FULL = 50
     
     # Learning rate scheduling
     LR_PATIENCE = 5
@@ -72,93 +39,50 @@ class Config:
     EARLY_STOPPING_PATIENCE = 10
     EARLY_STOPPING_DELTA = 1e-6
     
-    # ====================================================================
-    # DATA CONFIGURATION
-    # ====================================================================
-    
-    # Data splitting
+    # Data
     TRAIN_SPLIT = 0.8
     VAL_SPLIT = 0.1
     TEST_SPLIT = 0.1
-    
-    # Video processing
-    MAX_FRAMES_PER_VIDEO = 200  # Prevent VRAM overflow
-    FRAME_SKIP = 1  # Process every nth frame (1 = all frames)
-    
-    # Data augmentation
+    MAX_FRAMES_PER_VIDEO = 200
+    FRAME_SKIP = 1
     USE_AUGMENTATION = True
     NOISE_FACTOR = 0.05
     
-    # ====================================================================
-    # ANOMALY DETECTION
-    # ====================================================================
+    # Anomaly detection
+    THRESHOLD_FACTOR = 2.5
+    PERCENTILE_THRESHOLD = 95
+    THRESHOLD_MODE = 'statistical'
     
-    # Threshold calculation
-    THRESHOLD_FACTOR = 2.5  # Multiplier for std deviation
-    PERCENTILE_THRESHOLD = 95  # Alternative percentile-based threshold
-    
-    # Detection modes
-    THRESHOLD_MODE = 'statistical'  # 'statistical' or 'percentile'
-    
-    # ====================================================================
-    # PATHS AND DIRECTORIES
-    # ====================================================================
-    
-    # Project structure
+    # Paths
     PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
     DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
     MODELS_DIR = os.path.join(PROJECT_ROOT, 'saved_models')
     OUTPUTS_DIR = os.path.join(PROJECT_ROOT, 'outputs')
     LOGS_DIR = os.path.join(PROJECT_ROOT, 'logs')
     
-    # UCSD dataset paths (update these for your setup)
-    UCSD_ROOT = '/path/to/ucsd/ped2'  # UPDATE THIS PATH
+    UCSD_ROOT = '/path/to/ucsd/ped2'
     UCSD_TRAIN = os.path.join(UCSD_ROOT, 'Train')
     UCSD_TEST = os.path.join(UCSD_ROOT, 'Test')
-    UCSD_GT = os.path.join(UCSD_ROOT, 'Test_GT')  # Ground truth labels
+    UCSD_GT = os.path.join(UCSD_ROOT, 'Test_GT')
     
-    # ====================================================================
-    # SYNTHETIC DATA CONFIGURATION
-    # ====================================================================
-    
-    # Dataset sizes
-    SYNTHETIC_NORMAL_FRAMES = 800   # Reduced for faster demo
-    SYNTHETIC_ANOMALY_FRAMES = 80   # 10% anomaly ratio
-    
-    # Pattern parameters
+    # Synthetic data
+    SYNTHETIC_NORMAL_FRAMES = 800
+    SYNTHETIC_ANOMALY_FRAMES = 80
     CIRCLE_RADIUS_RANGE = (5, 12)
     MOVEMENT_AMPLITUDE = 20
     NOISE_LEVEL = 0.03
     
-    # ====================================================================
-    # VISUALIZATION SETTINGS
-    # ====================================================================
-    
-    # Plot settings
+    # Visualization
     FIGURE_SIZE = (12, 8)
     DPI = 150
     SAVE_PLOTS = True
-    
-    # Demo visualization
     DEMO_EXAMPLES = 8
     
-    # ====================================================================
-    # LOGGING AND MONITORING
-    # ====================================================================
-    
-    # Progress reporting
-    LOG_INTERVAL = 10  # Log every N batches
-    SAVE_INTERVAL = 5  # Save model every N epochs
-    
-    # Monitoring
+    # Logging
+    LOG_INTERVAL = 10
+    SAVE_INTERVAL = 5
     MONITOR_GPU = True
     VERBOSE = True
-    
-    # ====================================================================
-    # EXPERIMENTAL SETTINGS
-    # ====================================================================
-    
-    # Random seed for reproducibility
     RANDOM_SEED = 42
     
     # Model variations to try
@@ -203,41 +127,30 @@ class Config:
     
     @classmethod
     def optimize_for_hardware(cls):
-        """
-        Automatically optimize settings based on available hardware.
-        This ensures optimal performance on your RTX 3050.
-        """
+        """Adjust batch size based on available VRAM."""
         device_info = cls.get_device_info()
         
         if device_info['device'] == 'GPU':
             memory_gb = device_info['memory_gb']
-            
-            # Optimize batch size based on VRAM
             if memory_gb >= 8:
                 cls.BATCH_SIZE = 128
             elif memory_gb >= 6:
                 cls.BATCH_SIZE = 96
-            elif memory_gb >= 4:  # Your RTX 3050
+            elif memory_gb >= 4:
                 cls.BATCH_SIZE = 64
             else:
                 cls.BATCH_SIZE = 32
-                
-            print(f"✓ Optimized for {device_info['name']} ({memory_gb:.1f}GB)")
-            print(f"✓ Batch size set to: {cls.BATCH_SIZE}")
         else:
-            # CPU optimization
             cls.BATCH_SIZE = 16
             cls.MIXED_PRECISION = False
-            print("✓ Optimized for CPU processing")
     
     @classmethod
     def set_ucsd_path(cls, path):
         """Update UCSD dataset path."""
         cls.UCSD_ROOT = path
         cls.UCSD_TRAIN = os.path.join(path, 'Train')
-        cls.UCSD_TEST = os.path.join(path, 'Test') 
+        cls.UCSD_TEST = os.path.join(path, 'Test')
         cls.UCSD_GT = os.path.join(path, 'Test_GT')
-        print(f"✓ UCSD dataset path updated: {path}")
     
     @classmethod
     def print_config(cls):

@@ -51,7 +51,7 @@ class SyntheticVideoDataset(Dataset):
         
         print(f"Generating {num_normal_frames} normal and {num_anomaly_frames} anomaly frames...")
         self._generate_data()
-        print(f"✓ Generated {len(self.frames)} synthetic frames")
+        print(f"Generated {len(self.frames)} synthetic frames")
     
     def _generate_data(self):
         """Generate all synthetic frames and labels."""
@@ -255,7 +255,7 @@ class SyntheticVideoDataset(Dataset):
         
         if save_path:
             plt.savefig(save_path, dpi=150, bbox_inches='tight')
-            print(f"✓ Sample visualization saved to {save_path}")
+            print(f"Sample visualization saved to {save_path}")
         
         plt.show()
     
@@ -313,7 +313,7 @@ def create_synthetic_datasets(
     test_dataset = torch.utils.data.Subset(full_dataset, test_indices)
     test_labels = labels[test_indices]
     
-    print(f"✓ Created datasets: {len(train_dataset)} train (normal only), {len(test_dataset)} test (mixed)")
+    print(f"Created datasets: {len(train_dataset)} train (normal only), {len(test_dataset)} test (mixed)")
     
     return train_dataset, test_dataset, test_labels
 
@@ -345,4 +345,4 @@ if __name__ == "__main__":
     # Visualize samples
     dataset.visualize_samples(num_samples=6)
     
-    print("✓ Synthetic data test completed!")
+    print("Synthetic data test completed!")

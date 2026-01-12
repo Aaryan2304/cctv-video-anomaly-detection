@@ -30,7 +30,7 @@ def create_deployment_model():
             model = ConvolutionalAutoencoder(input_channels=1, latent_dim=256)
             model.load_state_dict(checkpoint['model_state_dict'])
             threshold = checkpoint.get('threshold', 0.005)
-            print(f"✓ Loaded model with threshold: {threshold}")
+            print(f"Loaded model with threshold: {threshold}")
         except Exception as e:
             print(f"Error loading model: {e}")
             print("Creating new model...")
@@ -57,7 +57,7 @@ def create_deployment_model():
     deployment_path = "outputs/deployment_model.pth"
     torch.save(deployment_checkpoint, deployment_path)
     
-    print(f"✓ Deployment model saved to: {deployment_path}")
+    print(f"Deployment model saved to: {deployment_path}")
     print(f"Model parameters: {model.get_model_info()['total_parameters']:,}")
     print(f"Model size: {os.path.getsize(deployment_path) / (1024*1024):.1f} MB")
     
@@ -83,7 +83,7 @@ def test_deployment_model():
             reconstructed = model(test_frame)
             error = torch.mean((test_frame - reconstructed) ** 2).item()
         
-        print(f"✓ Model test successful!")
+        print(f"Model test successful!")
         print(f"  Test reconstruction error: {error:.6f}")
         print(f"  Model threshold: {checkpoint['threshold']:.6f}")
         print(f"  Test anomaly: {'Yes' if error > checkpoint['threshold'] else 'No'}")

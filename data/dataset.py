@@ -1,18 +1,5 @@
 """
-Video Dataset Management
-========================
-
-This module handles loading, preprocessing, and managing video datasets for
-anomaly detection. It provides efficient data loading with preprocessing
-pipelines optimized for surveillance video analysis.
-
-Key Features:
-- Efficient video frame extraction using OpenCV
-- Preprocessing pipeline (grayscale, resize, normalize)
-- Memory-efficient data loading with caching
-- Support for both synthetic and real datasets
-- UCSD Ped2 dataset integration
-- Data augmentation for robust training
+Dataset classes for video frame loading and preprocessing.
 """
 
 import os
@@ -30,20 +17,7 @@ from .preprocessing import VideoPreprocessor
 
 
 class VideoDataset(Dataset):
-    """
-    Custom Dataset class for loading and preprocessing video frames.
-    
-    This class handles the conversion of video files into preprocessed frames
-    ready for neural network training. It supports both memory loading for
-    small datasets and on-demand loading for large datasets.
-    
-    Features:
-    - Efficient video processing with OpenCV
-    - Configurable preprocessing pipeline
-    - Memory vs disk trade-offs
-    - Progress tracking for large datasets
-    - Error handling for corrupted videos
-    """
+    """Loads and preprocesses video frames for training/inference."""
     
     def __init__(
         self,
@@ -97,16 +71,16 @@ class VideoDataset(Dataset):
         print(f"Loading dataset with {len(self.video_paths)} videos...")
         
         if self.cache_dir and self._check_cache():
-            print("✓ Loading from cache...")
+            print("Loading from cache...")
             self._load_from_cache()
         else:
-            print("✓ Processing videos...")
+            print("Processing videos...")
             self._process_videos()
             
             if self.cache_dir:
                 self._save_to_cache()
         
-        print(f"✓ Dataset loaded: {len(self.frames)} frames from {self.loading_stats['total_videos']} videos")
+        print(f"Dataset loaded: {len(self.frames)} frames from {self.loading_stats['total_videos']} videos")
         if self.loading_stats['corrupted_videos'] > 0:
             print(f"⚠ Skipped {self.loading_stats['corrupted_videos']} corrupted videos")
     
@@ -247,7 +221,7 @@ class VideoDataset(Dataset):
         with open(metadata_file, 'wb') as f:
             pickle.dump(cache_metadata, f)
         
-        print(f"✓ Dataset cached to {self.cache_dir}")
+        print(f"Dataset cached to {self.cache_dir}")
     
     def _load_from_cache(self):
         """Load data from cache."""
@@ -470,7 +444,7 @@ class SyntheticVideoDataset(Dataset):
         self.frames = np.array(self.frames, dtype=np.float32)
         self.labels = np.array(self.labels, dtype=np.int64)
         
-        print(f"✓ Generated {len(self.frames)} synthetic frames")
+        print(f\"Generated {len(self.frames)} synthetic frames\")
     
     def _generate_normal_frame(self, frame_idx: int) -> np.ndarray:
         """Generate a normal frame with predictable patterns."""
@@ -648,17 +622,17 @@ if __name__ == "__main__":
         frame_size=(64, 64)
     )
     
-    print(f"✓ Synthetic dataset: {len(synthetic_dataset)} frames")
+    print(f\"Synthetic dataset: {len(synthetic_dataset)} frames\")
     
     # Test data loader
     loader = DataLoader(synthetic_dataset, batch_size=8, shuffle=True)
     for batch_data, batch_target in loader:
-        print(f"✓ Batch shape: {batch_data.shape}")
+        print(f\"Batch shape: {batch_data.shape}\")
         break
     
     # Test dataset info
     sample_frame, _ = synthetic_dataset[0]
-    print(f"✓ Sample frame shape: {sample_frame.shape}")
-    print(f"✓ Labels distribution: Normal={np.sum(synthetic_dataset.labels == 0)}, Anomaly={np.sum(synthetic_dataset.labels == 1)}")
+    print(f\"Sample frame shape: {sample_frame.shape}\")
+    print(f\"Labels distribution: Normal={np.sum(synthetic_dataset.labels == 0)}, Anomaly={np.sum(synthetic_dataset.labels == 1)}\")
     
-    print("\n✓ All dataset tests completed successfully!")
+    print(\"\\nAll dataset tests completed!\")

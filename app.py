@@ -1,10 +1,5 @@
 """
-FastAPI Web Service for Video Anomaly Detection
-===============================================
-
-Production-ready API for real-time video anomaly detection using
-trained autoencoder models. Supports video upload, frame processing,
-and real-time anomaly scoring.
+FastAPI web service for video anomaly detection.
 """
 
 import os

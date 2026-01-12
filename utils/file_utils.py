@@ -38,7 +38,7 @@ def setup_experiment_directory(base_dir: str, experiment_name: Optional[str] = N
     for subdir in subdirs:
         os.makedirs(os.path.join(experiment_dir, subdir), exist_ok=True)
     
-    print(f"✓ Experiment directory created: {experiment_dir}")
+    print(f"Experiment directory created: {experiment_dir}")
     return experiment_dir
 
 
@@ -65,7 +65,7 @@ def save_results(results: Dict[str, Any], filepath: str):
     with open(filepath, 'w') as f:
         json.dump(json_results, f, indent=2)
     
-    print(f"✓ Results saved to {filepath}")
+    print(f"Results saved to {filepath}")
 
 
 def load_results(filepath: str) -> Dict[str, Any]:
@@ -105,11 +105,11 @@ def save_model_checkpoint(model, optimizer, epoch, loss, filepath):
     
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     torch.save(checkpoint, filepath)
-    print(f"✓ Model checkpoint saved to {filepath}")
+    print(f"Model checkpoint saved to {filepath}")
 
 
 def load_model_checkpoint(filepath, model, optimizer=None):
-"""
+    """
 File Management Utilities
 =========================
 
@@ -151,7 +151,7 @@ def setup_experiment_directory(base_dir: str, experiment_name: Optional[str] = N
     for subdir in subdirs:
         os.makedirs(os.path.join(experiment_dir, subdir), exist_ok=True)
     
-    print(f"✓ Experiment directory created: {experiment_dir}")
+    print(f"Experiment directory created: {experiment_dir}")
     return experiment_dir
 
 
@@ -181,7 +181,7 @@ def save_results(results: Dict[str, Any], filepath: str):
     with open(filepath, 'w') as f:
         json.dump(json_results, f, indent=2)
     
-    print(f"✓ Results saved to {filepath}")
+    print(f"Results saved to {filepath}")
 
 
 def _convert_dict_for_json(d: Dict) -> Dict:
@@ -238,7 +238,7 @@ def save_model_checkpoint(model, optimizer, epoch, loss, filepath, **kwargs):
     
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     torch.save(checkpoint, filepath)
-    print(f"✓ Model checkpoint saved to {filepath}")
+    print(f"Model checkpoint saved to {filepath}")
 
 
 def load_model_checkpoint(filepath, model, optimizer=None, device='cpu'):
@@ -261,7 +261,7 @@ def load_model_checkpoint(filepath, model, optimizer=None, device='cpu'):
     if optimizer is not None and 'optimizer_state_dict' in checkpoint:
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     
-    print(f"✓ Model checkpoint loaded from {filepath}")
+    print(f"Model checkpoint loaded from {filepath}")
     return checkpoint
 
 
@@ -279,7 +279,7 @@ def save_numpy_arrays(arrays_dict: Dict[str, np.ndarray], directory: str):
         filepath = os.path.join(directory, f"{name}.npy")
         np.save(filepath, array)
     
-    print(f"✓ Saved {len(arrays_dict)} arrays to {directory}")
+    print(f"Saved {len(arrays_dict)} arrays to {directory}")
 
 
 def load_numpy_arrays(directory: str) -> Dict[str, np.ndarray]:
@@ -298,7 +298,7 @@ def load_numpy_arrays(directory: str) -> Dict[str, np.ndarray]:
         name = os.path.splitext(os.path.basename(filepath))[0]
         arrays_dict[name] = np.load(filepath)
     
-    print(f"✓ Loaded {len(arrays_dict)} arrays from {directory}")
+    print(f"Loaded {len(arrays_dict)} arrays from {directory}")
     return arrays_dict
 
 
@@ -362,7 +362,7 @@ def backup_directory(source_dir: str, backup_dir: str):
         backup_path = os.path.join(backup_dir, backup_name)
         
         shutil.copytree(source_dir, backup_path)
-        print(f"✓ Backup created: {backup_path}")
+        print(f"Backup created: {backup_path}")
     else:
         print(f"Source directory does not exist: {source_dir}")
 
@@ -436,7 +436,7 @@ def create_experiment_summary(experiment_dir: str, results: Dict[str, Any]):
                 size = get_file_size_mb(filepath)
                 f.write(f"{filename}: {size:.2f} MB\n")
     
-    print(f"✓ Experiment summary saved to {summary_path}")
+    print(f"Experiment summary saved to {summary_path}")
 
 
 def list_experiments(base_dir: str) -> List[Dict]:
@@ -507,7 +507,7 @@ def clean_experiment_directory(experiment_dir: str, keep_essentials: bool = True
             except OSError:
                 pass
     
-    print(f"✓ Cleaned experiment directory: removed {removed_count} temporary files")
+    print(f"Cleaned experiment directory: removed {removed_count} temporary files")
 
 
 def export_experiment_results(experiment_dir: str, export_format: str = 'zip'):
@@ -547,7 +547,7 @@ def export_experiment_results(experiment_dir: str, export_format: str = 'zip'):
         print(f"Unsupported export format: {export_format}")
         return
     
-    print(f"✓ Experiment exported to: {export_path}")
+    print(f"Experiment exported to: {export_path}")
 
 
 def validate_experiment_directory(experiment_dir: str) -> Dict[str, bool]:
@@ -625,5 +625,5 @@ if __name__ == "__main__":
     experiments = list_experiments("test_outputs")
     print(f"Found {len(experiments)} experiments")
     
-    print("✓ File utilities test completed!")
+    print("File utilities test completed!")
 

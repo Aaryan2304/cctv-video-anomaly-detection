@@ -1,66 +1,41 @@
-# 🚀 Render.com Deployment Guide
+# Render.com Deployment Guide
 
-## Quick Deployment Steps (5 minutes)
+## Deployment Steps
 
-### Step 1: Prepare Your Repository
+### 1. Prepare Repository
 ```bash
-# 1. Ensure you're in the project directory
-cd C:\Users\aarya\Videos\anomaly_detection
-
-# 2. Initialize git repository (if not already done)
+cd /path/to/project
 git init
 git add .
-git commit -m "Initial commit - Video Anomaly Detection API"
-
-# 3. Push to GitHub
+git commit -m "Initial commit"
 git remote add origin https://github.com/YOUR_USERNAME/anomaly-detection.git
 git branch -M main
 git push -u origin main
 ```
 
-### Step 2: Deploy to Render
+### 2. Deploy to Render
 
-1. **Go to [render.com](https://render.com)** and create an account
+1. Create account at [render.com](https://render.com)
+2. New + -> Web Service
+3. Connect GitHub repository
+4. Configure:
+   - Name: `video-anomaly-detection-api`
+   - Environment: Python 3
+   - Branch: `main`
+   - Build Command: `./build.sh`
+   - Start Command: `uvicorn app:app --host 0.0.0.0 --port $PORT`
+5. Create Web Service
+6. API available at: `https://video-anomaly-detection-api.onrender.com`
 
-2. **Click "New +"** → **"Web Service"**
+## Alternative: Blueprint Deployment
 
-3. **Connect your GitHub repository:**
-   - Select "Build and deploy from a Git repository"
-   - Connect your GitHub account
-   - Select your `anomaly-detection` repository
+With `render.yaml` in the repo, Render auto-configures:
+- Python environment
+- Build/start commands
+- Health checks
+- Environment variables
 
-4. **Configure deployment settings:**
-   - **Name**: `video-anomaly-detection-api`
-   - **Environment**: `Python 3`
-   - **Region**: Choose closest to your location
-   - **Branch**: `main`
-   - **Build Command**: `./build.sh`
-   - **Start Command**: `uvicorn app:app --host 0.0.0.0 --port $PORT`
-   
-5. **Click "Create Web Service"**
-
-6. **Wait for deployment** (3-5 minutes)
-
-7. **Your API will be live at**: `https://video-anomaly-detection-api.onrender.com`
-
-## Alternative: Automatic Deployment with render.yaml
-
-Since we have a `render.yaml` file, Render can automatically configure everything:
-
-1. **Go to [render.com](https://render.com)** → **Dashboard**
-
-2. **Click "New +"** → **"Blueprint"**
-
-3. **Connect GitHub repository** and select your repo
-
-4. **Render will automatically detect `render.yaml`** and configure:
-   - ✅ Python environment
-   - ✅ Build commands
-   - ✅ Start commands  
-   - ✅ Health checks
-   - ✅ Environment variables
-
-5. **Click "Apply"** and wait for deployment
+Click "Apply" and wait for deployment.
 
 ## Environment Configuration
 
@@ -178,23 +153,20 @@ def get_model():
     return load_model()
 ```
 
-## Production Deployment Checklist
+## Deployment Checklist
 
 ### Before Deployment:
-- [ ] ✅ All sensitive data removed from code
-- [ ] ✅ Environment variables configured
-- [ ] ✅ Model files included in repository
-- [ ] ✅ Requirements.txt updated
-- [ ] ✅ Health check endpoint working
-- [ ] ✅ Error handling implemented
+- [ ] Sensitive data removed from code
+- [ ] Environment variables configured
+- [ ] Model files committed to repository
+- [ ] requirements.txt updated
+- [ ] Health check endpoint working
 
 ### After Deployment:
-- [ ] ✅ Health endpoint responds correctly
-- [ ] ✅ Web interface loads and functions
-- [ ] ✅ Video upload and analysis works
-- [ ] ✅ API documentation accessible at `/docs`
-- [ ] ✅ Threshold adjustment endpoints work
-- [ ] ✅ Performance meets requirements
+- [ ] Health endpoint responds
+- [ ] Web interface loads
+- [ ] Video analysis works
+- [ ] API docs accessible at `/docs`
 
 ## Monitoring and Maintenance
 
@@ -216,60 +188,23 @@ git push
 # Render automatically redeploys
 ```
 
-## URL Endpoints (Post-Deployment)
+## API Endpoints
 
-Your deployed API will have these endpoints:
+**Base URL:** `https://your-app.onrender.com`
 
-### 🏠 **Main Interface**
-`https://your-app.onrender.com/`
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Web interface |
+| `/health` | GET | Health check |
+| `/docs` | GET | Swagger UI |
+| `/analyze-video` | POST | Video analysis |
+| `/set-threshold` | POST | Update threshold |
+| `/calibrate-threshold` | POST | Auto-calibrate |
 
-### 📡 **API Endpoints**
-- `GET /health` - Health check
-- `GET /docs` - Interactive API documentation  
-- `GET /model-info` - Model information
-- `POST /analyze-video` - Video anomaly detection
-- `POST /analyze-image` - Image anomaly detection
-- `POST /set-threshold` - Update detection threshold
-- `POST /calibrate-threshold` - Auto-calibrate threshold
+## Cost
 
-### 📚 **Documentation**
-- `https://your-app.onrender.com/docs` - Swagger UI
-- `https://your-app.onrender.com/redoc` - ReDoc documentation
+**Free Tier:** 750 hours/month, CPU-only, 30-60s cold starts
 
-## Cost Considerations
+**Starter ($7/month):** Faster builds, no cold starts
 
-### **Free Tier Limitations:**
-- ✅ **750 hours/month** free compute time
-- ✅ **CPU-only** processing (no GPU)
-- ❌ **Cold starts** (30-60 second delay)
-- ❌ **No persistent storage**
-
-### **Upgrade Options:**
-- **Starter Plan ($7/month)**: Faster builds, no cold starts
-- **Standard Plan ($25/month)**: More resources, faster processing
-
-## Portfolio Showcase
-
-### **Demo URLs to Share:**
-```
-🎥 Live Demo: https://your-app.onrender.com
-📚 API Docs: https://your-app.onrender.com/docs
-💻 GitHub: https://github.com/your-username/anomaly-detection
-```
-
-### **Professional Presentation:**
-"Deployed a production-ready video anomaly detection API using FastAPI and Docker, 
-with automatic scaling on Render.com. The system processes real-time video streams 
-with 92.47% precision and includes automatic threshold calibration for different 
-camera environments."
-
----
-
-## 🎯 Next Steps After Deployment
-
-1. **Test with real CCTV footage** using the live API
-2. **Share the live demo URL** with potential employers
-3. **Monitor performance** and optimize as needed
-4. **Document any improvements** in your portfolio
-
-Your anomaly detection system is now ready for real-world use! 🚀
+**Standard ($25/month):** More resources

@@ -1,16 +1,5 @@
 """
-Anomaly Detection System
-========================
-
-This module implements the complete anomaly detection pipeline that coordinates
-training, threshold establishment, and inference. It acts as the control center
-that manages the entire anomaly detection workflow.
-
-Key Components:
-- Model training with early stopping and checkpointing
-- Threshold calculation using statistical methods
-- Real-time anomaly detection
-- Performance monitoring and logging
+Anomaly detection pipeline: training, threshold calibration, and inference.
 """
 
 import torch
@@ -28,40 +17,18 @@ from .autoencoder import ConvolutionalAutoencoder
 
 
 class EarlyStopping:
-    """
-    Early stopping utility to prevent overfitting during training.
-    
-    Monitors training loss and stops training when the model stops improving,
-    helping to find the optimal point before overfitting occurs.
-    """
+    """Stops training when validation loss stops improving."""
     
     def __init__(self, patience: int = 10, min_delta: float = 1e-6, verbose: bool = True):
-        """
-        Initialize early stopping monitor.
-        
-        Args:
-            patience: Number of epochs to wait for improvement
-            min_delta: Minimum change to qualify as improvement
-            verbose: Whether to print early stopping messages
-        """
         self.patience = patience
         self.min_delta = min_delta
         self.verbose = verbose
-        
         self.counter = 0
         self.best_loss = float('inf')
         self.early_stop = False
     
     def __call__(self, loss: float) -> bool:
-        """
-        Check if training should stop early.
-        
-        Args:
-            loss: Current epoch loss
-            
-        Returns:
-            True if training should stop, False otherwise
-        """
+        """Returns True if training should stop."""
         if loss < self.best_loss - self.min_delta:
             self.best_loss = loss
             self.counter = 0
@@ -76,33 +43,9 @@ class EarlyStopping:
 
 
 class AnomalyDetector:
-    """
-    Complete anomaly detection system that manages the entire pipeline.
+    """Coordinates training, threshold calibration, and inference."""
     
-    This class orchestrates:
-    1. Training the autoencoder on normal data
-    2. Establishing anomaly detection thresholds
-    3. Detecting anomalies in new data
-    4. Performance evaluation and monitoring
-    
-    The system is optimized for RTX 3050 performance with mixed precision training
-    and efficient memory management.
-    """
-    
-    def __init__(
-        self,
-        model: ConvolutionalAutoencoder,
-        device: torch.device,
-        config: object = None
-    ):
-        """
-        Initialize the anomaly detection system.
-        
-        Args:
-            model: Convolutional autoencoder model
-            device: Computing device (CPU or GPU)
-            config: Configuration object with hyperparameters
-        """
+    def __init__(self, model: ConvolutionalAutoencoder, device: torch.device, config: object = None):
         self.model = model.to(device)
         self.device = device
         self.config = config
@@ -124,11 +67,9 @@ class AnomalyDetector:
         self.training_time = 0
         self.inference_times = []
         
-        # Mixed precision training for RTX 3050 optimization
         self.use_mixed_precision = getattr(config, 'MIXED_PRECISION', True) if config else True
         if self.use_mixed_precision and device.type == 'cuda':
             self.scaler = torch.amp.GradScaler('cuda')
-            print("✓ Mixed precision training enabled for faster performance")
         else:
             self.scaler = None
     
@@ -141,16 +82,7 @@ class AnomalyDetector:
         save_path: Optional[str] = None,
         early_stopping_patience: int = 10
     ) -> Dict:
-        """
-        Train the autoencoder on normal video frames.
-        
-        This method implements the core learning process where the network
-        learns to reconstruct normal patterns. The better it becomes at
-        reconstructing normal data, the worse it will be at abnormal data.
-        
-        Args:
-            train_loader: DataLoader with normal training frames
-            val_loader: Optional validation DataLoader
+        """Train autoencoder on normal frames. Returns training history dict.
             num_epochs: Maximum number of training epochs
             learning_rate: Initial learning rate
             save_path: Path to save the best model
@@ -258,7 +190,7 @@ class AnomalyDetector:
         # Load best model
         if best_model_state is not None:
             self.model.load_state_dict(best_model_state)
-            print(f"✓ Loaded best model with loss: {best_loss:.6f}")
+            print(f"Loaded best model with loss: {best_loss:.6f}")
         
         # Training summary
         self.training_time = time.time() - start_time
@@ -272,8 +204,8 @@ class AnomalyDetector:
             'early_stopped': early_stopping.early_stop
         }
         
-        print(f"\n✓ Training completed in {self.training_time:.1f} seconds")
-        print(f"✓ Best reconstruction loss: {best_loss:.6f}")
+        print(f"\nTraining completed in {self.training_time:.1f} seconds")
+        print(f"Best reconstruction loss: {best_loss:.6f}")
         
         return training_stats
     
@@ -455,7 +387,7 @@ class AnomalyDetector:
             'false_positive_rate': np.sum(self.normal_errors > self.threshold) / len(self.normal_errors)
         }
         
-        print(f"✓ Threshold established using {method} method")
+        print(f"Threshold established using {method} method")
         print(f"  Threshold value: {self.threshold:.6f}")
         print(f"  Mean normal error: {self.threshold_stats['mean_error']:.6f}")
         print(f"  Std normal error: {self.threshold_stats['std_error']:.6f}")
@@ -515,7 +447,7 @@ class AnomalyDetector:
         anomaly_count = np.sum(anomaly_flags)
         total_count = len(reconstruction_errors)
         
-        print(f"✓ Anomaly detection completed")
+        print(f"Anomaly detection completed")
         print(f"  Detected {anomaly_count} anomalies out of {total_count} frames")
         print(f"  Anomaly rate: {anomaly_count/total_count:.2%}")
         print(f"  Average inference time: {avg_inference_time*1000:.2f}ms per frame")
@@ -558,7 +490,7 @@ class AnomalyDetector:
         self.threshold_stats = checkpoint.get('threshold_stats', {})
         self.is_trained = True
         
-        print(f"✓ Model loaded from {load_path}")
+        print(f"Model loaded from {load_path}")
         print(f"  Epoch: {checkpoint['epoch']}")
         print(f"  Loss: {checkpoint['loss']:.6f}")
         
@@ -578,7 +510,6 @@ class AnomalyDetector:
 
 
 if __name__ == "__main__":
-    # Test the detector
     from .autoencoder import ConvolutionalAutoencoder
     
     print("Testing Anomaly Detector...")
@@ -587,19 +518,16 @@ if __name__ == "__main__":
     model = ConvolutionalAutoencoder(latent_dim=128)
     detector = AnomalyDetector(model, device)
     
-    print(f"✓ Detector initialized on {device}")
+    print(f"Detector initialized on {device}")
     
-    # Create dummy data
     dummy_data = torch.randn(10, 1, 64, 64)
     dummy_dataset = torch.utils.data.TensorDataset(dummy_data, dummy_data)
     dummy_loader = torch.utils.data.DataLoader(dummy_dataset, batch_size=4)
     
-    # Quick training test
     stats = detector.train(dummy_loader, num_epochs=2)
-    print(f"✓ Training test completed: {stats}")
+    print(f"Training test completed: {stats}")
     
-    # Threshold test
     threshold_stats = detector.establish_threshold(dummy_loader)
-    print(f"✓ Threshold test completed: {threshold_stats['threshold']:.6f}")
+    print(f"Threshold test completed: {threshold_stats['threshold']:.6f}")
     
-    print("\n✓ Detector test completed successfully!")
+    print("Detector test completed.")

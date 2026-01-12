@@ -528,13 +528,13 @@ if __name__ == "__main__":
     results = evaluator.evaluate_detection(all_scores, all_labels)
     
     # Print results
-    print(f"✓ AUC Score: {results['auc_score']:.4f}")
-    print(f"✓ Precision: {results['precision']:.4f}")
-    print(f"✓ Recall: {results['recall']:.4f}")
-    print(f"✓ F1-Score: {results['f1_score']:.4f}")
+    print(f"AUC Score: {results['auc_score']:.4f}")
+    print(f"Precision: {results['precision']:.4f}")
+    print(f"Recall: {results['recall']:.4f}")
+    print(f"F1-Score: {results['f1_score']:.4f}")
     
     # Generate report
     report = evaluator.generate_performance_report(results)
-    print("\n" + report)
+    print("\\n" + report)
     
-    print("\n✓ Performance evaluator test completed successfully!")
+    print("\\nPerformance evaluator test completed!")

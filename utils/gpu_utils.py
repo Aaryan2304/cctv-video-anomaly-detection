@@ -68,7 +68,7 @@ class GPUManager:
         """Clear GPU memory cache."""
         if self.gpu_available:
             torch.cuda.empty_cache()
-            print("✓ GPU memory cache cleared")
+            print("GPU memory cache cleared")
     
     def optimize_memory_usage(self):
         """Apply memory optimization settings."""
@@ -82,7 +82,7 @@ class GPUManager:
         if hasattr(torch.backends.cuda, 'enable_flash_sdp'):
             torch.backends.cuda.enable_flash_sdp(True)
         
-        print("✓ GPU memory optimization applied")
+        print("GPU memory optimization applied")
     
     def monitor_memory_during_training(self, check_interval: int = 10):
         """
@@ -112,7 +112,7 @@ class MemoryMonitor:
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.gpu_manager.gpu_available:
             peak_allocated = torch.cuda.max_memory_allocated() / (1024**3)
-            print(f"✓ Peak GPU memory usage: {peak_allocated:.2f} GB")
+            print(f"Peak GPU memory usage: {peak_allocated:.2f} GB")
     
     def check_memory(self):
         """Check current memory usage."""
@@ -305,4 +305,4 @@ if __name__ == "__main__":
     sys_info = get_system_info()
     print(f"\nSystem Info: {sys_info}")
     
-    print("\n✓ GPU utilities test completed!")
+    print("\\nGPU utilities test completed!")

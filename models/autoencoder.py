@@ -1,9 +1,5 @@
 """
-Complete Convolutional Autoencoder Implementation
-================================================
-
-This module implements a complete convolutional autoencoder for learning
-compressed representations of normal video patterns in anomaly detection.
+Convolutional autoencoder for video frame reconstruction.
 """
 
 import torch
@@ -15,12 +11,8 @@ import numpy as np
 
 class ConvolutionalAutoencoder(nn.Module):
     """
-    Convolutional Autoencoder for video frame reconstruction.
-    
-    Architecture:
-    - Encoder: Progressively compresses 64x64 frames to latent representation
-    - Decoder: Reconstructs frames from latent representation
-    - Symmetric design for stable training
+    Symmetric encoder-decoder for 64x64 grayscale frames.
+    Encoder: 64x64 -> 32x32 -> 16x16 -> 8x8 -> 4x4 -> latent_dim
     """
     
     def __init__(self, input_channels: int = 1, latent_dim: int = 256):
@@ -244,5 +236,3 @@ if __name__ == "__main__":
     # Model info
     info = model.get_model_info()
     print(f"Model info: {info}")
-    
-    print("✓ Autoencoder test completed!")

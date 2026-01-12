@@ -1,68 +1,61 @@
-# 🎥 Video Anomaly Detection System
+# Video Anomaly Detection System
 
-A production-ready video anomaly detection system using unsupervised learning. Trained on UCSD Ped2 surveillance dataset with **92.47% precision** and **0.7438 AUC** performance.
+Video anomaly detection using convolutional autoencoders trained on UCSD Ped2 surveillance dataset. Deployed as FastAPI web service with real-time scoring.
 
-## 🚀 Quick Start
+**Metrics (UCSD Ped2):** 92.47% precision, 0.7438 AUC
 
-### For Employers/Demo (2 minutes):
+## Quick Start
+
+### Demo
+
 ```bash
-# 1. Start the API server
 python app.py
-
-# 2. Open browser to http://localhost:8000
-# 3. Upload any MP4 video for instant analysis
+# API available at http://localhost:8000
 ```
 
-### For Development:
+### Development
+
 ```bash
-# 1. Install dependencies
 pip install -r requirements.txt
-
-# 2. Train your own model (optional - pre-trained included)
-python main.py
-
-# 3. Test with realistic videos
-python create_realistic_test_videos.py
+python main.py                        # Train model (pre-trained included)
+python create_realistic_test_videos.py # Generate test data
 python app.py
 ```
 
-## 🎯 Real-World Capabilities
+## Capabilities
 
-### ✅ **Works With:**
-- **CCTV Camera Feeds** (MP4, AVI, MOV formats)
-- **Security Surveillance Systems** (fixed camera positions)
-- **Live Video Streams** (via API integration)
-- **Pedestrian Areas** (sidewalks, building entrances, plazas)
-- **Indoor Security** (lobbies, corridors, retail spaces)
+**Supported Inputs:** MP4, AVI, MOV via cv2.VideoCapture
 
-### 📊 **Performance:**
-- **Processing Speed**: ~0.2 seconds per 10-second video clip
-- **GPU Acceleration**: CUDA-enabled for real-time processing
-- **Accuracy**: 92.47% precision, 0.7438 AUC on validation data
-- **Scalability**: Handles multiple concurrent video streams
+**Performance (RTX 3050):**
 
-## 🏗️ System Architecture
+- ~0.2s per 10-second clip (GPU)
+- ~2-5s per clip (CPU)
+- Concurrent stream support via FastAPI async
 
-```
-Real Camera Feed → API Endpoint → AI Model → Anomaly Detection → Alerts/Dashboard
+## Architecture
+
+```text
+Video → Frame Extraction → Grayscale/Resize → Autoencoder → Reconstruction Error → Threshold → Anomaly Score
 ```
 
-### Core Components:
-- **FastAPI Web Service**: Production REST API with auto-documentation
-- **PyTorch Autoencoder**: Trained on real surveillance footage (UCSD Ped2)
-- **Adaptive Thresholding**: Automatic calibration for different environments
-- **Real-time Processing**: Optimized for live video analysis
-- **Docker Deployment**: Production-ready containerization
+**Components:**
 
-## 📡 API Reference
+- `app.py` - FastAPI service with `/analyze-video`, `/calibrate-threshold` endpoints
+- `models/autoencoder.py` - Convolutional autoencoder (64×64 → 256-dim latent → 64×64)
+- `models/detector.py` - Training loop, threshold calibration, inference
+- `data/preprocessing.py` - Frame extraction and normalization pipeline
+
+## API Reference
 
 ### Video Analysis
+
 ```http
 POST /analyze-video
 Content-Type: multipart/form-data
 ```
 
 **Response:**
+
 ```json
 {
   "frame_count": 60,
@@ -79,6 +72,7 @@ Content-Type: multipart/form-data
 ```
 
 ### Threshold Calibration
+
 ```http
 POST /calibrate-threshold
 Content-Type: application/json
@@ -89,6 +83,7 @@ Content-Type: application/json
 ```
 
 ### Preset Security Levels
+
 ```http
 POST /set-threshold-preset
 Content-Type: application/json
@@ -98,28 +93,17 @@ Content-Type: application/json
 }
 ```
 
-## 🎛️ Deployment Configurations
+## Threshold Presets
 
-### Security Level Presets:
+| Preset | Anomaly Rate | Use Case |
+|--------|--------------|----------|
+| conservative | 5% | Low false-positive environments |
+| balanced | 10% | General surveillance |
+| moderate | 25% | High-sensitivity monitoring |
+| sensitive | 40% | Maximum detection recall |
 
-#### 🔴 **High Security (Conservative)**
-- **5% anomaly rate** - Minimal false positives
-- **Use Case**: Banks, airports, critical infrastructure
-- **API**: `{"preset": "conservative"}`
+## Integration Example
 
-#### 🟡 **Balanced Security (Recommended)**
-- **10% anomaly rate** - Optimal balance
-- **Use Case**: Office buildings, retail stores, general surveillance
-- **API**: `{"preset": "balanced"}`
-
-#### 🟠 **High Sensitivity (Moderate)**
-- **25% anomaly rate** - Catches more events
-- **Use Case**: Public spaces, behavior monitoring
-- **API**: `{"preset": "moderate"}`
-
-## 🏢 Enterprise Integration Examples
-
-### Security Management System Integration:
 ```python
 import requests
 
@@ -147,7 +131,8 @@ class SecuritySystem:
         pass
 ```
 
-### Multi-Camera Processing:
+### Multi-Camera Processing
+
 ```python
 async def process_multiple_cameras(camera_feeds):
     """Process multiple camera feeds concurrently"""
@@ -160,22 +145,25 @@ async def process_multiple_cameras(camera_feeds):
     return results
 ```
 
-## 🐳 Production Deployment
+## Deployment
 
-### Docker (Recommended):
+### Docker
+
 ```bash
 # Build and run
 docker build -t anomaly-detector .
 docker run -p 8000:8000 --gpus all anomaly-detector
 ```
 
-### Cloud Deployment (Render.com):
+### Cloud Deployment
+
 ```bash
 # Push to GitHub, connect to Render
 # Automatic deployment with render.yaml configuration
 ```
 
-### Docker Compose (Multi-service):
+### Docker Compose
+
 ```yaml
 version: '3.8'
 services:
@@ -190,37 +178,23 @@ services:
     restart: unless-stopped
 ```
 
-## 📊 Model Training Details
+## Model Details
 
-### Dataset:
-- **Source**: UCSD Ped2 surveillance dataset
-- **Type**: Real pedestrian surveillance footage
-- **Training**: 1,530 normal frames for unsupervised learning
-- **Validation**: Ground truth anomaly annotations
+**Dataset:** UCSD Ped2 (1,530 normal frames, ground truth annotations)
 
-### Architecture:
-- **Model**: Convolutional Autoencoder
-- **Input**: 64x64 grayscale frames
-- **Latent Dimension**: 256 features
-- **Parameters**: 3.48M trainable parameters
+**Architecture:** Convolutional autoencoder, 64×64 grayscale input, 256-dim latent, 3.48M parameters
 
-### Performance Metrics:
-- **AUC Score**: 0.7438
-- **Precision**: 92.47%
-- **Recall**: 83.78%
-- **F1-Score**: 87.91%
+**Metrics:** AUC 0.7438, Precision 92.47%, Recall 83.78%, F1 87.91%
 
-## 🔧 Threshold Optimization
+### Threshold Calibration Example
 
-The system includes sophisticated threshold management:
-
-### Automatic Calibration:
 ```python
 # Set target anomaly rate (e.g., 10%)
 requests.post("/calibrate-threshold", json={"target_anomaly_rate": 0.10})
 ```
 
-### Environment-Specific Tuning:
+### Environment-Specific Tuning
+
 ```python
 # Analyze your actual camera footage
 files = [open("camera1_sample.mp4", "rb"), open("camera2_sample.mp4", "rb")]
@@ -231,122 +205,42 @@ thresholds = response.json()["suggested_thresholds"]
 requests.post("/set-threshold", json={"threshold": thresholds["balanced_10pct"]})
 ```
 
-## 📁 Project Structure
+## Project Structure
 
-```
-anomaly_detection/
-├── 🎯 CORE APPLICATION
-│   ├── app.py                     # FastAPI production web service
-│   ├── main.py                    # Training and evaluation script
-│   ├── config.py                  # Configuration settings
-│   └── create_realistic_test_videos.py  # Test video generator
-│
-├── 🧠 MODEL COMPONENTS
-│   ├── models/
-│   │   ├── autoencoder.py         # Convolutional autoencoder architecture
-│   │   └── detector.py            # Anomaly detection logic
-│   ├── data/
-│   │   ├── dataset.py             # UCSD Ped2 dataset loader
-│   │   ├── preprocessing.py       # Video preprocessing pipeline
-│   │   └── synthetic_data.py      # Synthetic data generation
-│   ├── evaluation/
-│   │   ├── metrics.py             # Performance evaluation
-│   │   └── visualizer.py          # Results visualization
-│   └── utils/
-│       ├── file_utils.py          # File handling utilities
-│       └── gpu_utils.py           # GPU optimization
-│
-├── 📊 TRAINED MODEL & RESULTS
-│   └── outputs/
-│       ├── trained_model.pth      # Production-ready model (13.9MB)
-│       ├── analysis_report.txt    # Performance analysis
-│       ├── roc_curve.png          # ROC curve visualization
-│       └── reconstruction_errors.npy  # Training statistics
-│
-├── 🚀 DEPLOYMENT
-│   ├── Dockerfile                 # Production container
-│   ├── requirements.txt           # Dependencies
-│   └── deployment/
-│       ├── docker-compose.yml     # Multi-service setup
-│       ├── render.yaml            # Cloud deployment config
-│       └── build.sh               # Build scripts
-│
-├── 🧪 TESTING
-│   ├── test_videos/               # Test videos for validation
-│   └── cctv_samples/              # Sample CCTV footage
-│
-└── 📚 DATASETS
-    ├── ped2/                      # UCSD Ped2 dataset
-    └── UCSD_Anomaly_Dataset.v1p2/ # Full UCSD dataset
+```text
+├── app.py                 # FastAPI web service
+├── main.py                # Training/evaluation pipeline
+├── config.py              # Configuration management
+├── models/
+│   ├── autoencoder.py     # ConvolutionalAutoencoder, LightweightAutoencoder
+│   └── detector.py        # AnomalyDetector, EarlyStopping
+├── data/
+│   ├── dataset.py         # VideoDataset, SyntheticVideoDataset
+│   ├── preprocessing.py   # VideoPreprocessor
+│   └── synthetic_data.py  # Test data generation
+├── evaluation/
+│   ├── metrics.py         # PerformanceEvaluator
+│   └── visualizer.py      # ResultsVisualizer
+├── outputs/
+│   ├── trained_model.pth  # Trained weights
+│   └── *.npy              # Training artifacts
+└── Dockerfile, render.yaml, requirements.txt
 ```
 
-## 🎯 Use Cases & Success Stories
+## Troubleshooting
 
-### Ideal Applications:
-1. **Building Security**: Lobby and entrance monitoring
-2. **Retail Loss Prevention**: Store surveillance systems
-3. **Campus Safety**: University and school security
-4. **Public Space Monitoring**: Parks, plazas, transportation hubs
-5. **Industrial Safety**: Factory and warehouse monitoring
+**High false positives:** Use `{"preset": "conservative"}`
 
-### Performance Optimization:
-- **CPU-only**: 2-5 seconds per video clip
-- **GPU-accelerated**: 0.2-0.5 seconds per video clip
-- **Batch processing**: Up to 10 concurrent video streams
-- **Memory efficient**: <2GB RAM usage
+**Missing anomalies:** Use `{"preset": "sensitive"}`
 
-## 🛠️ Troubleshooting
+**Slow processing:** Enable CUDA or reduce frame resolution
 
-### Common Issues:
+## Documentation
 
-#### High False Positive Rate:
-```python
-# Solution: Use conservative threshold
-requests.post("/set-threshold-preset", json={"preset": "conservative"})
-```
+- API docs: `/docs` (Swagger) and `/redoc` when server is running
+- Architecture: `models/autoencoder.py`
+- Training: `main.py`
 
-#### Missing Anomalies:
-```python
-# Solution: Increase sensitivity
-requests.post("/set-threshold-preset", json={"preset": "sensitive"})
-```
+## License
 
-#### Slow Processing:
-- Enable GPU acceleration
-- Reduce video resolution
-- Use batch processing
-
-## 📞 Support & Documentation
-
-- **API Documentation**: Available at `/docs` endpoint when running
-- **Interactive Testing**: Swagger UI at `/redoc`
-- **Model Architecture**: See `models/autoencoder.py`
-- **Training Process**: See `main.py` for full pipeline
-
-## 🏆 Portfolio Highlights
-
-This project demonstrates:
-
-✅ **Production ML Engineering**: Real-world deployment capabilities  
-✅ **Computer Vision Expertise**: Video processing and anomaly detection  
-✅ **API Development**: FastAPI with comprehensive documentation  
-✅ **DevOps Skills**: Docker, cloud deployment, monitoring  
-✅ **Performance Optimization**: GPU acceleration, efficient processing  
-✅ **Security Domain Knowledge**: Surveillance and security applications  
-
-Perfect for showcasing ML engineering skills to employers in:
-- **Security Technology Companies**
-- **AI/ML Startups**
-- **Enterprise Software**
-- **Surveillance Systems**
-- **Smart City Solutions**
-
----
-
-## 📄 License
-
-This project is for educational and portfolio demonstration purposes. The UCSD Ped2 dataset is used under academic license terms.
-
-## 🤝 Contributing
-
-This is a portfolio project, but feedback and suggestions are welcome via issues or pull requests.
+MIT. UCSD Ped2 dataset used under academic license.

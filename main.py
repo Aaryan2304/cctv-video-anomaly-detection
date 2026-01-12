@@ -1,9 +1,5 @@
 """
-Complete Main Execution Script
-==============================
-
-Simple, clean execution script for video anomaly detection.
-Supports both synthetic data (for learning) and real datasets (UCSD).
+Training and evaluation pipeline for video anomaly detection.
 """
 
 import argparse
@@ -71,7 +67,7 @@ def create_synthetic_dataset():
     test_dataset = dataset  # Full dataset for testing
     test_labels = labels
     
-    print(f"✓ Created synthetic dataset: {len(train_dataset)} train, {len(test_dataset)} test")
+    print(f"Created synthetic dataset: {len(train_dataset)} train, {len(test_dataset)} test")
     return train_dataset, test_dataset, test_labels
 
 
@@ -150,7 +146,7 @@ def create_ucsd_dataset(data_path):
     if not train_videos or not test_videos:
         raise FileNotFoundError("No video/image files found in UCSD dataset directories")
     
-    print(f"✓ Loaded {len(test_videos)} test frames with labels")
+    print(f"Loaded {len(test_videos)} test frames with labels")
     print(f"  Normal frames: {test_labels.count(0)}")
     print(f"  Anomalous frames: {test_labels.count(1)}")
     print(f"  Anomaly rate: {test_labels.count(1)/len(test_labels):.1%}")
@@ -179,7 +175,7 @@ def create_ucsd_dataset(data_path):
     # Convert labels to numpy array
     test_labels = np.array(test_labels, dtype=np.int64)
     
-    print(f"✓ Created UCSD dataset: {len(train_dataset)} train, {len(test_dataset)} test")
+    print(f"Created UCSD dataset: {len(train_dataset)} train, {len(test_dataset)} test")
     return train_dataset, test_dataset, test_labels
 
 
@@ -195,7 +191,7 @@ def create_model(model_type, device):
     model = model.to(device)
     info = model.get_model_info()
     
-    print(f"✓ Model created: {info['total_parameters']:,} parameters")
+    print(f"Model created: {info['total_parameters']:,} parameters")
     return model
 
 
@@ -221,7 +217,7 @@ def train_model(detector, train_dataset, epochs, batch_size):
     )
     
     training_time = time.time() - start_time
-    print(f"✓ Training completed in {training_time:.1f} seconds")
+    print(f"Training completed in {training_time:.1f} seconds")
     
     return training_stats
 
@@ -248,13 +244,13 @@ def evaluate_model(detector, train_dataset, test_dataset, test_labels, batch_siz
         evaluator = PerformanceEvaluator()
         results = evaluator.evaluate_detection(reconstruction_errors, test_labels)
         
-        print(f"\n✓ Performance Results:")
+        print(f"\nPerformance Results:")
         print(f"  AUC Score: {results['auc_score']:.4f}")
         print(f"  Precision: {results['precision']:.4f}")
         print(f"  Recall: {results['recall']:.4f}")
         print(f"  F1-Score: {results['f1_score']:.4f}")
     else:
-        print(f"✓ Anomaly detection completed (no ground truth for evaluation)")
+        print(f"Anomaly detection completed (no ground truth for evaluation)")
     
     anomaly_count = np.sum(anomaly_flags)
     total_count = len(anomaly_flags)
@@ -308,7 +304,7 @@ def create_validation_samples(reconstruction_errors, anomaly_flags, output_dir, 
     with open(os.path.join(output_dir, 'validation_samples.txt'), 'w') as f:
         f.write('\n'.join(validation_report))
     
-    print(f"✓ Validation samples saved to validation_samples.txt")
+    print(f"Validation samples saved to validation_samples.txt")
     return validation_report
 
 
@@ -359,7 +355,7 @@ def create_threshold_analysis(detector, reconstruction_errors, output_dir):
     with open(os.path.join(output_dir, 'threshold_analysis.txt'), 'w') as f:
         f.write('\n'.join(analysis_results))
     
-    print(f"✓ Threshold analysis saved to threshold_analysis.txt")
+    print(f"Threshold analysis saved to threshold_analysis.txt")
     return analysis_results
 
 
@@ -401,7 +397,7 @@ def create_visualizations(detector, results, reconstruction_errors, test_labels,
     
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'training_analysis.png'), dpi=150, bbox_inches='tight')
-    print(f"✓ Saved training analysis plot")
+    print(f"Saved training analysis plot")
     
     # ROC curve (if labels available)
     if test_labels is not None and 'fpr' in results:
@@ -417,7 +413,7 @@ def create_visualizations(detector, results, reconstruction_errors, test_labels,
         plt.legend(loc="lower right")
         plt.grid(True)
         plt.savefig(os.path.join(output_dir, 'roc_curve.png'), dpi=150, bbox_inches='tight')
-        print(f"✓ Saved ROC curve")
+        print(f"Saved ROC curve")
     
     plt.close('all')
 
@@ -493,8 +489,8 @@ def save_results(results, reconstruction_errors, anomaly_flags, output_dir, dete
             f.write("No ground truth labels available for validation.\n")
             f.write("Consider using synthetic data for performance evaluation.\n\n")
     
-    print(f"✓ Results saved to {output_dir}")
-    print(f"✓ Detailed analysis saved to analysis_report.txt")
+    print(f"Results saved to {output_dir}")
+    print(f"Detailed analysis saved to analysis_report.txt")
 
 
 def main():
@@ -539,7 +535,7 @@ def main():
             'training_stats': training_stats,
             'model_info': detector.model.get_model_info()
         }, model_save_path)
-        print(f"✓ Model saved to: {model_save_path}")
+        print(f"Model saved to: {model_save_path}")
         
         # Evaluate model
         results, reconstruction_errors, anomaly_flags = evaluate_model(

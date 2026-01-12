@@ -120,7 +120,7 @@ class ResultsVisualizer:
         plt.savefig(save_path, dpi=self.dpi, bbox_inches='tight', format=self.save_format)
         plt.show()
         
-        print(f"✓ Training progress plot saved to {save_path}")
+        print(f"Training progress plot saved to {save_path}")
     
     def plot_error_distributions(
         self, 
@@ -196,7 +196,7 @@ Max: {np.max(normal_errors):.4f}"""
         plt.savefig(save_path, dpi=self.dpi, bbox_inches='tight', format=self.save_format)
         plt.show()
         
-        print(f"✓ Error distribution plot saved to {save_path}")
+        print(f"Error distribution plot saved to {save_path}")
     
     def plot_roc_curve(self, results: Dict, save_name: str = "roc_curve.png"):
         """
@@ -260,7 +260,7 @@ Max: {np.max(normal_errors):.4f}"""
         plt.savefig(save_path, dpi=self.dpi, bbox_inches='tight', format=self.save_format)
         plt.show()
         
-        print(f"✓ ROC curve plot saved to {save_path}")
+        print(f"ROC curve plot saved to {save_path}")
     
     def plot_reconstruction_examples(
         self,
@@ -332,7 +332,7 @@ Max: {np.max(normal_errors):.4f}"""
         plt.savefig(save_path, dpi=self.dpi, bbox_inches='tight', format=self.save_format)
         plt.show()
         
-        print(f"✓ Reconstruction examples plot saved to {save_path}")
+        print(f"Reconstruction examples plot saved to {save_path}")
     
     def plot_detection_timeline(
         self,
@@ -396,7 +396,7 @@ Max: {np.max(normal_errors):.4f}"""
         plt.savefig(save_path, dpi=self.dpi, bbox_inches='tight', format=self.save_format)
         plt.show()
         
-        print(f"✓ Detection timeline plot saved to {save_path}")
+        print(f"Detection timeline plot saved to {save_path}")
     
     def create_summary_report(
         self,
@@ -516,7 +516,7 @@ Max: {np.max(normal_errors):.4f}"""
         plt.savefig(save_path, dpi=self.dpi, bbox_inches='tight', format=self.save_format)
         plt.show()
         
-        print(f"✓ Summary report saved to {save_path}")
+        print(f"Summary report saved to {save_path}")
 
 
 def plot_simple_results(results: Dict, output_dir: str = "outputs"):
@@ -572,4 +572,4 @@ if __name__ == "__main__":
     anomaly_errors = np.random.normal(0.03, 0.01, 100)
     viz.plot_error_distributions(normal_errors, anomaly_errors, threshold=0.025)
     
-    print("✓ Visualization test completed!")
+    print("Visualization test completed!")

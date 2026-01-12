@@ -1,17 +1,5 @@
 """
-Video Preprocessing Pipeline
-============================
-
-This module implements efficient video preprocessing operations optimized for
-anomaly detection. It handles frame extraction, resizing, normalization,
-and augmentation with focus on maintaining temporal consistency.
-
-Key Features:
-- Optimized OpenCV operations
-- Configurable preprocessing pipelines
-- Data augmentation for robust training
-- Memory-efficient processing
-- Quality validation and error handling
+Video frame extraction and preprocessing pipeline.
 """
 
 import cv2
@@ -23,19 +11,7 @@ import warnings
 
 
 class VideoPreprocessor:
-    """
-    Comprehensive video preprocessing pipeline for anomaly detection.
-    
-    This class handles all video preprocessing operations including:
-    - Frame extraction and quality validation
-    - Grayscale conversion for efficiency
-    - Resizing with proper aspect ratio handling
-    - Normalization for neural network training
-    - Optional data augmentation
-    
-    The pipeline is optimized for surveillance video analysis where
-    structural patterns matter more than color information.
-    """
+    """Frame extraction, resizing, and normalization for autoencoder input."""
     
     def __init__(
         self,
@@ -684,8 +660,8 @@ if __name__ == "__main__":
     )
     
     processed = preprocessor.process_frame(test_frame)
-    print(f"✓ Processed frame shape: {processed.shape}")
-    print(f"✓ Processed frame range: [{processed.min():.3f}, {processed.max():.3f}]")
+    print(f\"Processed frame shape: {processed.shape}\")
+    print(f\"Processed frame range: [{processed.min():.3f}, {processed.max():.3f}]\")
     
     # Test augmentation
     aug_config = {
@@ -701,7 +677,7 @@ if __name__ == "__main__":
     )
     
     augmented = aug_preprocessor.process_frame(test_frame, apply_augmentation=True)
-    print(f"✓ Augmented frame shape: {augmented.shape}")
+    print(f\"Augmented frame shape: {augmented.shape}\")
     
     # Test temporal preprocessor
     temporal_preprocessor = TemporalPreprocessor(
@@ -715,11 +691,11 @@ if __name__ == "__main__":
         preprocessor.process_frame(f) for f in test_frames
     ])
     
-    print(f"✓ Created {len(sequences)} temporal sequences")
-    print(f"✓ Sequence shape: {sequences[0].shape}")
+    print(f\"Created {len(sequences)} temporal sequences\")
+    print(f\"Sequence shape: {sequences[0].shape}\")
     
     # Test statistics
     stats = preprocessor.get_preprocessing_stats()
-    print(f"✓ Preprocessing stats: {stats}")
+    print(f\"Preprocessing stats: {stats}\")
     
-    print("\n✓ All preprocessing tests completed successfully!")
+    print(\"\\nAll preprocessing tests completed!\")
