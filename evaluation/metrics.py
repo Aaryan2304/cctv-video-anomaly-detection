@@ -42,7 +42,7 @@ class PerformanceEvaluator:
             positive_label: Label value indicating anomaly (typically 1)
         """
         self.positive_label = positive_label
-        self.evaluation_cache = {}  # Cache computed metrics
+        self.evaluation_cache = {}
     
     def evaluate_detection(
         self,
@@ -280,7 +280,7 @@ class PerformanceEvaluator:
             elif aggregation_method == 'mean':
                 video_score = np.mean(scores)
             elif aggregation_method == 'percentile':
-                video_score = np.percentile(scores, 95)  # 95th percentile
+                video_score = np.percentile(scores, 95)
             else:
                 raise ValueError(f"Unknown aggregation method: {aggregation_method}")
             

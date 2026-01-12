@@ -444,7 +444,7 @@ class SyntheticVideoDataset(Dataset):
         self.frames = np.array(self.frames, dtype=np.float32)
         self.labels = np.array(self.labels, dtype=np.int64)
         
-        print(f\"Generated {len(self.frames)} synthetic frames\")
+        print(f"Generated {len(self.frames)} synthetic frames")
     
     def _generate_normal_frame(self, frame_idx: int) -> np.ndarray:
         """Generate a normal frame with predictable patterns."""
@@ -622,17 +622,17 @@ if __name__ == "__main__":
         frame_size=(64, 64)
     )
     
-    print(f\"Synthetic dataset: {len(synthetic_dataset)} frames\")
+    print(f"Synthetic dataset: {len(synthetic_dataset)} frames")
     
     # Test data loader
     loader = DataLoader(synthetic_dataset, batch_size=8, shuffle=True)
     for batch_data, batch_target in loader:
-        print(f\"Batch shape: {batch_data.shape}\")
+        print(f"Batch shape: {batch_data.shape}")
         break
     
     # Test dataset info
     sample_frame, _ = synthetic_dataset[0]
-    print(f\"Sample frame shape: {sample_frame.shape}\")
-    print(f\"Labels distribution: Normal={np.sum(synthetic_dataset.labels == 0)}, Anomaly={np.sum(synthetic_dataset.labels == 1)}\")
+    print(f"Sample frame shape: {sample_frame.shape}")
+    print(f"Labels distribution: Normal={np.sum(synthetic_dataset.labels == 0)}, Anomaly={np.sum(synthetic_dataset.labels == 1)}")
     
-    print(\"\\nAll dataset tests completed!\")
+    print("\nAll dataset tests completed!")

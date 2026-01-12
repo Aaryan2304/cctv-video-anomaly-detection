@@ -175,9 +175,7 @@ class Config:
         print("=" * 60)
 
 
-# ====================================================================
 # SPECIALIZED CONFIGURATIONS
-# ====================================================================
 
 class QuickDemoConfig(Config):
     """Fast configuration for quick demonstrations."""
@@ -191,12 +189,12 @@ class HighQualityConfig(Config):
     EPOCHS_SYNTHETIC = 50
     EPOCHS_UCSD = 60
     LATENT_DIM = 512
-    BATCH_SIZE = 32  # Larger model needs smaller batches
+    BATCH_SIZE = 32  
 
 class ProductionConfig(Config):
     """Optimized configuration for production deployment."""
     LATENT_DIM = 256
-    FRAME_SIZE = (32, 32)  # Smaller for speed
+    FRAME_SIZE = (32, 32)  
     BATCH_SIZE = 128
     MIXED_PRECISION = True
 

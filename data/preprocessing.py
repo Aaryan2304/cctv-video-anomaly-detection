@@ -660,8 +660,8 @@ if __name__ == "__main__":
     )
     
     processed = preprocessor.process_frame(test_frame)
-    print(f\"Processed frame shape: {processed.shape}\")
-    print(f\"Processed frame range: [{processed.min():.3f}, {processed.max():.3f}]\")
+    print(f"Processed frame shape: {processed.shape}")
+    print(f"Processed frame range: [{processed.min():.3f}, {processed.max():.3f}]")
     
     # Test augmentation
     aug_config = {
@@ -677,7 +677,7 @@ if __name__ == "__main__":
     )
     
     augmented = aug_preprocessor.process_frame(test_frame, apply_augmentation=True)
-    print(f\"Augmented frame shape: {augmented.shape}\")
+    print(f"Augmented frame shape: {augmented.shape}")
     
     # Test temporal preprocessor
     temporal_preprocessor = TemporalPreprocessor(
@@ -691,11 +691,11 @@ if __name__ == "__main__":
         preprocessor.process_frame(f) for f in test_frames
     ])
     
-    print(f\"Created {len(sequences)} temporal sequences\")
-    print(f\"Sequence shape: {sequences[0].shape}\")
+    print(f"Created {len(sequences)} temporal sequences")
+    print(f"Sequence shape: {sequences[0].shape}")
     
     # Test statistics
     stats = preprocessor.get_preprocessing_stats()
-    print(f\"Preprocessing stats: {stats}\")
+    print(f"Preprocessing stats: {stats}")
     
-    print(\"\\nAll preprocessing tests completed!\")
+    print("\nAll preprocessing tests completed!")
