@@ -1,210 +1,584 @@
-# Render.com Deployment Guide
+# Deployment Guide
 
-## Deployment Steps
+Complete guide for deploying the Video Anomaly Detection system in development and production environments.
 
-### 1. Prepare Repository
+---
+
+## 📋 Deployment Options
+
+### Option 1: API on Render + Dashboard Local (Recommended)
+- **API:** Hosted on Render.com (auto-deploy)
+- **Dashboard:** Users run locally, connects to production API
+- **Cost:** Free tier
+- **Best for:** Public demos, portfolio projects
+
+### Option 2: Full Local Deployment
+- **API + Dashboard:** Both run on developer machine
+- **Cost:** Free
+- **Best for:** Development, testing, offline use
+
+### Option 3: Full Cloud Deployment
+- **API:** Render.com
+- **Dashboard:** Streamlit Cloud
+- **Cost:** Free tier for both
+- **Best for:** Production use, always-on access
+
+---
+
+## 🚀 Quick Start (Option 1 - Recommended)
+
+### Prerequisites
 ```bash
-cd /path/to/project
-git init
+# Check Python version
+python --version  # Should be 3.10+
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Step 1: Deploy API to Render
+
+**Automatic Deployment:**
+1. Push code to GitHub
+2. Render auto-detects `render.yaml`
+3. Deploys API automatically
+
+```bash
 git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/YOUR_USERNAME/anomaly-detection.git
-git branch -M main
-git push -u origin main
+git commit -m "deploy: production ready"
+git push origin main
 ```
 
-### 2. Deploy to Render
+**Manual Deployment (First Time):**
+1. Go to [render.com](https://render.com)
+2. New → Web Service
+3. Connect GitHub repo: `Aaryan2304/cctv-video-anomaly-detection`
+4. Render auto-configures from `render.yaml`
+5. Click "Create Web Service"
 
-1. Create account at [render.com](https://render.com)
-2. New + -> Web Service
-3. Connect GitHub repository
-4. Configure:
-   - Name: `video-anomaly-detection-api`
-   - Environment: Python 3
-   - Branch: `main`
-   - Build Command: `./build.sh`
-   - Start Command: `uvicorn app:app --host 0.0.0.0 --port $PORT`
-5. Create Web Service
-6. API available at: `https://video-anomaly-detection-api.onrender.com`
+**Your API will be available at:**
+```
+https://video-anomaly-detection-api.onrender.com
+```
 
-## Alternative: Blueprint Deployment
+### Step 2: Run Dashboard Locally
 
-With `render.yaml` in the repo, Render auto-configures:
-- Python environment
-- Build/start commands
-- Health checks
-- Environment variables
+```bash
+# Set production API URL
+# Windows PowerShell
+$env:API_URL = "https://video-anomaly-detection-api.onrender.com"
 
-Click "Apply" and wait for deployment.
+# Linux/Mac
+export API_URL="https://video-anomaly-detection-api.onrender.com"
 
-## Environment Configuration
+# Launch dashboard
+streamlit run dashboard.py
+```
 
-### Required Environment Variables (Auto-configured):
+Dashboard opens at `http://localhost:8501` and connects to your production API.
+
+---
+
+## 🔧 Configuration Details
+
+### Render.com Setup
+
+**Configured via `render.yaml`:**
 ```yaml
-PYTHON_VERSION: 3.11.0
-PORT: (automatically set by Render)
+services:
+  - type: web
+    name: video-anomaly-detection-api
+    env: python
+    plan: free
+    buildCommand: "./build.sh"
+    startCommand: "uvicorn app:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: "/health"
 ```
 
-### Optional Environment Variables:
+**Build Process (`build.sh`):**
+1. Installs dependencies from `requirements.txt`
+2. Creates output directories
+3. Verifies critical files exist
+4. Checks for trained model (warning if missing)
+
+**Environment Variables (Auto-configured):**
+- `PYTHON_VERSION`: 3.11.0
+- `PORT`: Assigned by Render
+
+**Optional Variables (Add in Render Dashboard):**
+- `APP_DEBUG`: false
+- `APP_LOG_LEVEL`: INFO
+- `APP_MAX_FILE_SIZE_MB`: 100
+- `APP_MAX_VIDEO_DURATION_SEC`: 300
+
+### Dashboard Configuration
+
+**API Connection Priority:**
+1. Streamlit secrets (`.streamlit/secrets.toml`)
+2. Environment variable (`API_URL`)
+3. Default (`http://localhost:8000`)
+
+**Create `.streamlit/secrets.toml`:**
+```toml
+API_URL = "https://video-anomaly-detection-api.onrender.com"
+```
+
+---
+
+## 📦 Deployment Workflows
+
+### Development Workflow
+
 ```bash
-# Add these in Render dashboard if needed
-MODEL_THRESHOLD=0.005069
-GPU_ENABLED=false  # Render free tier is CPU-only
-DEBUG=false
+# Terminal 1: Run API locally
+python app.py
+
+# Terminal 2: Run dashboard
+streamlit run dashboard.py
+# Auto-connects to localhost:8000
 ```
 
-## Post-Deployment Testing
+### Production Workflow (Option 1)
 
-### 1. Test Health Endpoint
 ```bash
-curl https://your-app-name.onrender.com/health
+# 1. Code changes
+git add .
+git commit -m "feat: your feature"
+git push origin main
+
+# 2. Render auto-deploys API (2-3 minutes)
+# Monitor: Render Dashboard → Logs
+
+# 3. Users run dashboard locally
+$env:API_URL = "https://your-api.onrender.com"
+streamlit run dashboard.py
 ```
 
-**Expected Response:**
-```json
+### Testing Production Deployment
+
+```bash
+# Test API health
+curl https://video-anomaly-detection-api.onrender.com/health
+
+# Expected response:
 {
   "status": "healthy",
   "model_loaded": true,
   "device": "cpu",
-  "version": "1.0.0"
+  "version": "2.0.0"
+}
+
+# Test API docs
+# Visit: https://video-anomaly-detection-api.onrender.com/docs
+```
+
+---
+
+## 🐳 Docker Deployment
+
+### Build and Run API
+
+```bash
+# Build image
+docker build -t anomaly-detector .
+
+# Run container
+docker run -p 8000:8000 anomaly-detector
+
+# API available at http://localhost:8000
+```
+
+### Run Dashboard with Docker API
+
+```bash
+# Terminal 1: Docker API running on port 8000
+
+# Terminal 2: Dashboard
+streamlit run dashboard.py
+# Auto-connects to localhost:8000
+```
+
+### Docker Compose (Full Stack)
+
+Create `docker-compose.yml`:
+```yaml
+version: '3.8'
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./outputs:/app/outputs
+    environment:
+      - APP_DEBUG=false
+
+  # Note: Dashboard not in compose (users run locally)
+```
+
+```bash
+docker-compose up
+```
+
+---
+
+## ☁️ Streamlit Cloud Deployment (Optional)
+
+For fully hosted dashboard:
+
+### Setup
+
+1. **Fork Repository**
+   - Fork `Aaryan2304/cctv-video-anomaly-detection` on GitHub
+
+2. **Deploy to Streamlit Cloud**
+   - Go to [share.streamlit.io](https://share.streamlit.io)
+   - Click "New app"
+   - Select your forked repo
+   - Main file: `dashboard.py`
+   - Click "Deploy"
+
+3. **Configure Secrets**
+   - In Streamlit Cloud dashboard
+   - Settings → Secrets
+   - Add:
+     ```toml
+     API_URL = "https://video-anomaly-detection-api.onrender.com"
+     ```
+
+4. **Access Dashboard**
+   - URL: `https://yourapp.streamlit.app`
+   - No sleep on free tier (unlike Render)
+
+---
+
+## 📊 Monitoring & Maintenance
+
+### Health Monitoring
+
+**Render.com:**
+- Automatic health checks every 30 seconds
+- Endpoint: `GET /health`
+- Email alerts on failure (configure in dashboard)
+
+**Manual Monitoring:**
+```bash
+# Check API status
+curl https://your-api.onrender.com/health
+
+# Check logs
+# Render Dashboard → Service → Logs (real-time)
+```
+
+### Performance Metrics
+
+**Free Tier Limitations:**
+- **Render:** Spins down after 15 min inactivity
+- **Cold start:** 30-60 seconds on first request
+- **RAM:** 512 MB
+- **CPU:** Shared, no GPU
+
+**Expected Performance:**
+- API startup: 30-60s (cold start), <5s (warm)
+- Video processing: 0.1-2s per video (CPU)
+- Dashboard load: <2s (local), ~5s (Streamlit Cloud)
+
+### Logs
+
+**Structured JSON Logs (Phase 1 Feature):**
+```json
+{
+  "timestamp": "2026-01-12T10:15:26Z",
+  "level": "INFO",
+  "message": "POST /analyze-video -> 200 (1.2s)",
+  "request_id": "5ecdd3f9",
+  "status_code": 200,
+  "duration_ms": 1234.5
 }
 ```
 
-### 2. Test Web Interface
-- Visit: `https://your-app-name.onrender.com`
-- Upload a test video
-- Verify anomaly detection works
+**View Logs:**
+- Render: Dashboard → Logs tab
+- Local: Terminal output
+- Docker: `docker logs <container_id>`
 
-### 3. Test API Endpoints
+---
+
+## 🔄 Update Procedures
+
+### Code Updates
+
 ```bash
-# Get model information
-curl https://your-app-name.onrender.com/model-info
+# 1. Make changes locally
+git add .
+git commit -m "fix: bug description"
 
-# Set threshold (example)
-curl -X POST https://your-app-name.onrender.com/set-threshold \
-  -H "Content-Type: application/json" \
-  -d '{"threshold": 0.008}'
+# 2. Push to GitHub
+git push origin main
+
+# 3. Render auto-deploys
+# Monitor progress in Render Dashboard
 ```
 
-## Troubleshooting
+### Model Updates
 
-### Common Issues:
-
-#### 1. **Build Fails - Missing Dependencies**
-**Error**: `ModuleNotFoundError`
-
-**Solution**: Update `requirements.txt`:
+**Small Models (<100MB):**
 ```bash
-# Check if all dependencies are listed
+# Train new model
+python main.py --mode custom --data_path your_data/
+
+# Commit to Git
+git add outputs/trained_model.pth
+git commit -m "model: retrained on new dataset"
+git push origin main
+```
+
+**Large Models (>100MB):**
+```bash
+# Use Git LFS
+git lfs install
+git lfs track "outputs/trained_model.pth"
+git add .gitattributes outputs/trained_model.pth
+git commit -m "model: add via Git LFS"
+git push origin main
+
+# Or upload manually via Render Shell
+```
+
+### Rollback
+
+**Render Dashboard:**
+1. Go to Deployments tab
+2. Select previous successful deployment
+3. Click "Redeploy"
+
+**Git Rollback:**
+```bash
+git revert HEAD
+git push origin main
+```
+
+---
+
+## 🐛 Troubleshooting
+
+### API Issues
+
+**Problem: Build fails with "Module not found"**
+```bash
+# Solution: Update requirements.txt
 pip freeze > requirements.txt
 git add requirements.txt
-git commit -m "Update requirements"
+git commit -m "fix: update dependencies"
 git push
 ```
 
-#### 2. **Model Loading Fails**
-**Error**: `Model file not found`
-
-**Solution**: Ensure model files are committed:
+**Problem: API returns 500 errors**
 ```bash
-# Check if model files are included
-git add outputs/trained_model.pth
-git add outputs/reconstruction_errors.npy
-git commit -m "Add trained model files"
-git push
+# Check logs in Render Dashboard
+# Look for Python exceptions
+
+# Common causes:
+# 1. Missing model file
+# 2. Incorrect settings.py configuration
+# 3. Out of memory (reduce batch size)
 ```
 
-#### 3. **Slow Cold Starts**
-**Issue**: First request takes 30+ seconds
-
-**Solution**: This is normal on Render free tier. For production:
-- Upgrade to paid plan for faster cold starts
-- Implement health check pinging
-
-#### 4. **Memory Issues**
-**Error**: `Out of memory`
-
-**Solution**: Optimize for Render's memory limits:
-```python
-# In app.py - reduce batch processing
-BATCH_SIZE = 16  # Smaller batches for CPU processing
+**Problem: Cold start takes >60 seconds**
+```bash
+# This is normal on free tier
+# Solutions:
+# 1. Upgrade to paid tier ($7/month for no cold starts)
+# 2. Implement keep-alive ping
+# 3. Accept the limitation for free hosting
 ```
 
-## Performance Optimization for Render
+### Dashboard Issues
 
-### 1. **CPU Optimization** (Free Tier)
-```python
-# Add to app.py startup
-import torch
-torch.set_num_threads(2)  # Limit CPU threads
+**Problem: "API connection failed"**
+```bash
+# Check API is running
+curl https://your-api.onrender.com/health
+
+# Check API_URL environment variable
+echo $API_URL  # Linux/Mac
+echo $env:API_URL  # Windows PowerShell
+
+# Verify CORS (already configured in app.py)
 ```
 
-### 2. **Memory Management**
-```python
-# Process videos in smaller chunks
-MAX_FRAMES_PER_BATCH = 32
+**Problem: "Cannot read video file"**
+```bash
+# Cause: File uploaded twice (file pointer issue)
+# Fixed in dashboard.py Phase 2
+
+# If still occurs:
+# 1. Check video codec (use H.264)
+# 2. Verify file size <100MB
+# 3. Test with different video
 ```
 
-### 3. **Caching Strategy**
+**Problem: Streamlit shows import errors**
+```bash
+# Reinstall dependencies
+pip install -r requirements.txt
+
+# Activate correct environment
+conda activate gpu  # or your env name
+```
+
+### Docker Issues
+
+**Problem: Container won't start**
+```bash
+# Check logs
+docker logs <container_id>
+
+# Common causes:
+# 1. Port 8000 already in use
+docker ps  # Check running containers
+# 2. Missing files in image
+docker exec -it <container_id> ls /app
+```
+
+**Problem: Out of memory in container**
+```bash
+# Increase Docker memory limit
+# Docker Desktop → Settings → Resources → Memory
+
+# Or reduce batch size in settings.py
+APP_BATCH_SIZE=32
+```
+
+---
+
+## 📈 Scaling & Optimization
+
+### Render Free Tier Optimizations
+
+**Reduce Cold Start Time:**
 ```python
-# Cache model loading
-@lru_cache(maxsize=1)
+# In app.py, lazy load heavy dependencies
+import torch  # Load on startup
+# vs
 def get_model():
-    return load_model()
+    import torch  # Load when needed
 ```
 
-## Deployment Checklist
+**Memory Optimization:**
+```python
+# In settings.py
+batch_size: int = 32  # Lower for free tier
+max_frames: int = 1000  # Limit video length
+```
 
-### Before Deployment:
-- [ ] Sensitive data removed from code
-- [ ] Environment variables configured
-- [ ] Model files committed to repository
-- [ ] requirements.txt updated
-- [ ] Health check endpoint working
-
-### After Deployment:
-- [ ] Health endpoint responds
-- [ ] Web interface loads
-- [ ] Video analysis works
-- [ ] API docs accessible at `/docs`
-
-## Monitoring and Maintenance
-
-### 1. **Monitor Application Logs**
-- Check Render dashboard for deployment logs
-- Monitor runtime errors and performance
-
-### 2. **Set Up Alerts**
-- Configure Render health check monitoring
-- Set up email notifications for downtime
-
-### 3. **Regular Updates**
+**Keep-Alive (Optional):**
 ```bash
-# Update model or code
-git add .
-git commit -m "Update: description of changes"
-git push
+# Ping health endpoint every 10 minutes
+# Prevents cold starts for active hours
 
-# Render automatically redeploys
+# Use external service like UptimeRobot (free)
+# Monitor: https://your-api.onrender.com/health
 ```
 
-## API Endpoints
+### Upgrade Paths
 
-**Base URL:** `https://your-app.onrender.com`
+| Tier | Cost | RAM | Features |
+|------|------|-----|----------|
+| Free | $0 | 512MB | Spins down after 15min |
+| Starter | $7/mo | 512MB | Always-on, faster builds |
+| Standard | $25/mo | 2GB | Better performance |
+| Pro | $85/mo | 4GB | Dedicated CPU |
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Web interface |
-| `/health` | GET | Health check |
-| `/docs` | GET | Swagger UI |
-| `/analyze-video` | POST | Video analysis |
-| `/set-threshold` | POST | Update threshold |
-| `/calibrate-threshold` | POST | Auto-calibrate |
+**When to Upgrade:**
+- High traffic (>100 requests/day)
+- Large videos (>5 minutes)
+- Need always-on availability
+- Want faster cold starts
 
-## Cost
+### GPU Deployment
 
-**Free Tier:** 750 hours/month, CPU-only, 30-60s cold starts
+Render doesn't support GPU. For GPU inference:
 
-**Starter ($7/month):** Faster builds, no cold starts
+**Option 1: Google Cloud Run**
+- Supports GPUs
+- Pay per request
+- Auto-scaling
 
-**Standard ($25/month):** More resources
+**Option 2: AWS Lambda + GPU**
+- Serverless with GPU
+- Complex setup
+
+**Option 3: Dedicated GPU Server**
+- DigitalOcean GPU droplets
+- $400/month for entry GPU
+- Full control
+
+---
+
+## ✅ Production Checklist
+
+### Before First Deployment
+- [ ] All code committed to GitHub
+- [ ] `.gitignore` configured (no secrets)
+- [ ] `requirements.txt` updated
+- [ ] `render.yaml` configured
+- [ ] Model file available (or will be created on startup)
+- [ ] Health endpoint tested locally
+
+### After Deployment
+- [ ] API health check returns 200
+- [ ] API docs accessible at `/docs`
+- [ ] Dashboard connects to API
+- [ ] Video upload works end-to-end
+- [ ] Logs show structured JSON format
+- [ ] No errors in Render logs
+
+### Security Checklist
+- [ ] No API keys in code
+- [ ] `.env` in `.gitignore`
+- [ ] CORS configured correctly
+- [ ] File size limits enforced
+- [ ] Video duration limits enforced
+- [ ] Consider adding authentication (for sensitive data)
+
+---
+
+## 📚 API Endpoints Reference
+
+**Base URL:** `https://video-anomaly-detection-api.onrender.com`
+
+| Endpoint | Method | Description | Auth |
+|----------|--------|-------------|------|
+| `/` | GET | Web interface (old HTML) | None |
+| `/health` | GET | Health check + model info | None |
+| `/docs` | GET | Swagger UI | None |
+| `/redoc` | GET | ReDoc API docs | None |
+| `/analyze-video` | POST | Video anomaly detection | None |
+| `/calibrate-threshold` | POST | Auto-calibrate threshold | None |
+| `/set-threshold-preset` | POST | Set preset threshold | None |
+
+**Example API Call:**
+```bash
+curl -X POST "https://your-api.onrender.com/analyze-video" \
+  -H "accept: application/json" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@test_video.mp4"
+```
+
+---
+
+## 🎯 Next Steps
+
+1. **Deploy API to Render** (5 minutes)
+2. **Test with dashboard locally** (2 minutes)
+3. **Share API URL** with users
+4. **Monitor logs** for first few days
+5. **Optional:** Deploy dashboard to Streamlit Cloud
+6. **Optional:** Add authentication for production use
+
+---
+
+**Last Updated:** January 12, 2026  
+**Deployment Strategy:** Option 1 (API on Render, Dashboard local)  
+**Status:** Production Ready ✅

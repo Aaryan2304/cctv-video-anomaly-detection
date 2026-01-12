@@ -169,35 +169,49 @@ async def process_multiple_cameras(camera_feeds):
 
 ## Deployment
 
-### Docker
+### Local Development
 
 ```bash
-# Build and run
+# Terminal 1: Start FastAPI backend
+python app.py
+
+# Terminal 2: Launch Streamlit dashboard
+streamlit run dashboard.py
+```
+
+### Production (Render.com)
+
+**FastAPI Backend** - Already deployed and auto-updates on git push
+
+```
+API URL: https://video-anomaly-detection-api.onrender.com
+API Docs: https://video-anomaly-detection-api.onrender.com/docs
+Health Check: https://video-anomaly-detection-api.onrender.com/health
+```
+
+**Streamlit Dashboard** - Run locally, connects to deployed API
+
+```bash
+# Windows PowerShell
+$env:API_URL = "https://video-anomaly-detection-api.onrender.com"
+streamlit run dashboard.py
+
+# Linux/Mac
+export API_URL="https://video-anomaly-detection-api.onrender.com"
+streamlit run dashboard.py
+```
+
+Dashboard will automatically connect to the production API for video processing.
+
+### Docker (Local Testing)
+
+```bash
+# Build and run API only
 docker build -t anomaly-detector .
-docker run -p 8000:8000 --gpus all anomaly-detector
-```
+docker run -p 8000:8000 anomaly-detector
 
-### Cloud Deployment
-
-```bash
-# Push to GitHub, connect to Render
-# Automatic deployment with render.yaml configuration
-```
-
-### Docker Compose
-
-```yaml
-version: '3.8'
-services:
-  anomaly-detector:
-    build: .
-    ports:
-      - "8000:8000"
-    environment:
-      - GPU_ENABLED=true
-    volumes:
-      - ./models:/app/models
-    restart: unless-stopped
+# Then run dashboard locally
+streamlit run dashboard.py
 ```
 
 ## Model Details

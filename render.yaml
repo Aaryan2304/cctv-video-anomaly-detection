@@ -1,5 +1,4 @@
 services:
-  # FastAPI Backend
   - type: web
     name: video-anomaly-detection-api
     env: python
@@ -12,20 +11,4 @@ services:
         value: 3.11.0
       - key: PORT
         sync: false
-    autoDeploy: true
-
-  # Streamlit Dashboard
-  - type: web
-    name: video-anomaly-detection-dashboard
-    env: python
-    plan: free
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "streamlit run dashboard.py --server.port $PORT --server.address 0.0.0.0"
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.0
-      - key: PORT
-        sync: false
-      - key: API_URL
-        value: https://video-anomaly-detection-api.onrender.com/
     autoDeploy: true

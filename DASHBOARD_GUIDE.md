@@ -2,7 +2,286 @@
 
 ## Streamlit Dashboard for Video Anomaly Detection
 
-Production-grade UI built with Streamlit, featuring real-time analysis, interactive visualizations, and dynamic threshold adjustment.
+Production-grade UI for analyzing surveillance videos, identifying anomalies, and exploring reconstruction-based anomaly detection in real-time.
+
+---
+
+## What is This Dashboard?
+
+This dashboard is the **visual interface** for the video anomaly detection system. It allows you to:
+
+1. **Upload surveillance videos** and get frame-by-frame anomaly scores
+2. **Visualize where anomalies occur** using interactive charts
+3. **Adjust sensitivity** without re-running GPU inference
+4. **Inspect specific frames** to understand what the model flagged
+5. **Export results** for reports, further analysis, or archival
+
+### How It Works (Technical Overview)
+
+The system uses a **Convolutional Autoencoder** trained to reconstruct "normal" surveillance footage (UCSD Ped2 pedestrian videos). When it sees new video:
+
+1. **Extracts frames** from your uploaded video
+2. **Processes each frame** through the neural network
+3. **Calculates reconstruction error** - how different the output is from the input
+4. **Compares to threshold** - errors above threshold = anomaly
+
+**Key Insight:** The model learned what "normal" looks like. Anything that doesn't match (unusual motion, objects, patterns) produces high reconstruction error.
+
+### What You See in the Dashboard
+
+#### 1. **Reconstruction Error**
+- **Definition:** Pixel-level difference between original frame and reconstructed frame
+- **Formula:** Mean Squared Error (MSE) across all 64×64 pixels
+- **Range:** 0.0 (perfect reconstruction) to ~0.1+ (very poor reconstruction)
+- **Typical Values:** 
+  - Normal frames: 0.001 - 0.005
+  - Anomalies: 0.008 - 0.05+
+
+**Example:** If a frame has error 0.0032, it means the model reconstructed it almost perfectly (normal). If error is 0.0189, the model struggled (likely anomaly).
+
+#### 2. **Threshold Line (Orange)**
+- **Definition:** The cutoff value that separates normal from anomaly
+- **How It's Set:** Statistical analysis of validation set (typically 95th percentile)
+- **Default:** ~0.00507 for UCSD Ped2 model
+- **Adjustable:** Use slider to change sensitivity
+
+**Interpretation:** Frames with error **above** threshold are flagged as anomalies.
+
+#### 3. **Anomaly Rate**
+- **Definition:** Percentage of frames flagged as anomalies
+- **Formula:** (Anomaly Count / Total Frames) × 100
+- **Typical Range:** 2-10% for videos with occasional unusual events
+- **Red Flag:** >50% means model isn't suited for this video type (see README_ML_PHILOSOPHY.md)
+
+**Example:** 8 anomalies in 300 frames = 2.67% anomaly rate
+
+#### 4. **Processing Time**
+- **Definition:** GPU/CPU time to analyze all frames
+- **Factors:** Video length, batch size, hardware
+- **Expected:** 
+  - GPU (RTX 3050): ~0.2s per 10-sec video
+  - CPU (Production): ~2-5s per 10-sec video
+  - Render free tier: ~5-10s per 10-sec video
+
+---
+
+## Dashboard Components Explained
+
+### Sidebar: Configuration & Metrics
+
+**API Connection Status**
+```
+✓ API Connected (http://localhost:8000)
+```
+- **Green checkmark:** Dashboard can reach FastAPI backend
+- **Red X:** API unreachable (check if `python app.py` is running)
+- **URL shown:** Where dashboard sends video files for analysis
+
+**Current Threshold Value**
+```
+Current Threshold: 0.00507
+```
+- **What it means:** Frames with error >0.00507 are anomalies
+- **When it changes:** After you adjust the slider
+- **Impact:** Higher threshold = fewer anomalies (less sensitive)
+
+**Key Metrics (After Analysis)**
+```
+📊 Analysis Results
+━━━━━━━━━━━━━━━━━━━━━━━━
+📹 Total Frames: 300
+🚨 Anomalies Detected: 12
+📈 Anomaly Rate: 4.0%
+⚡ Processing Time: 2.34s
+💻 Device: cuda
+```
+
+**Breakdown:**
+- **Total Frames:** Video frame count (extracted by OpenCV)
+- **Anomalies Detected:** Frames with error > threshold
+- **Anomaly Rate:** Percentage of flagged frames
+- **Processing Time:** How long GPU/CPU took to analyze
+- **Device:** "cuda" (GPU) or "cpu" (processor used)
+
+---
+
+### Main Panel: Interactive Timeline Chart
+
+**Chart Elements:**
+
+1. **Blue Line:** Reconstruction error for every frame
+   - **Peaks:** Frames model struggled to reconstruct
+   - **Valleys:** Frames model reconstructed easily (normal)
+   - **Spikes:** Sudden changes, unusual motion, anomalies
+
+2. **Red Markers:** Detected anomalies (error > threshold)
+   - **Size:** Indicates severity (bigger = higher error)
+   - **Hover:** Shows exact error value and frame number
+   - **Click:** Jumps to that frame in viewer below
+
+3. **Orange Threshold Line:** Your current sensitivity setting
+   - **Horizontal:** Same value across all frames
+   - **Position:** Marks the anomaly cutoff
+   - **Movable:** Adjust with slider, line updates instantly
+
+4. **Green Vertical Line:** Current frame being viewed
+   - **Tracks:** Which frame is displayed in viewer
+   - **Moves:** When you navigate frames or click chart
+
+**How to Use:**
+- **Zoom:** Click + drag to zoom into specific time range
+- **Pan:** Double-click to reset zoom, drag to pan
+- **Inspect:** Hover over any point to see frame number + error value
+- **Navigate:** Click any spike to jump to that frame
+
+**What to Look For:**
+- **Clusters of spikes:** Prolonged unusual activity
+- **Isolated spikes:** Brief anomalies (person enters frame, object moves)
+- **Flat regions:** Steady, normal footage
+- **Spikes just below threshold:** Borderline anomalies (adjust slider to include/exclude)
+
+---
+
+### Threshold Adjustment Section
+
+**Dynamic Threshold Slider**
+```
+Adjust Threshold (No Re-analysis Needed)
+0.002 ◆━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 0.045
+        👆 Current: 0.00507
+```
+
+**How It Works:**
+1. **Client-side recalculation:** Slider changes threshold instantly
+2. **No API call:** Uses cached reconstruction errors from initial analysis
+3. **Real-time updates:** Metrics, chart markers, and flags update immediately
+
+**When to Adjust:**
+- **Too many false positives:** Increase threshold (move right)
+- **Missing obvious anomalies:** Decrease threshold (move left)
+- **Experiment:** Try different values to find sweet spot for your video type
+
+**Example Scenarios:**
+- **Crowded scene:** People moving constantly → higher threshold (0.008-0.01)
+- **Static camera:** Minimal motion → lower threshold (0.003-0.005)
+- **Outdoor with weather:** Wind, shadows → higher threshold
+
+**Reset Button:** Returns to original threshold from API analysis (statistical 95th percentile)
+
+---
+
+### Frame Viewer
+
+**Display Area:**
+- **Image:** Current frame from video (RGB, resized for display)
+- **Border Color:** 
+  - **Red:** Anomaly detected (error > threshold)
+  - **None:** Normal frame
+- **Status Indicator:** "🚨 Anomaly Detected" or "✓ Normal"
+
+**Frame Information:**
+```
+Frame 145 / 300
+Reconstruction Error: 0.0189
+Status: 🚨 Anomaly Detected
+```
+
+**Breakdown:**
+- **Frame X / Y:** Current position in video (1-indexed for humans)
+- **Reconstruction Error:** MSE for this specific frame
+- **Status:** Anomaly if error > threshold, Normal otherwise
+
+**Navigation Controls:**
+```
+⏮ First | ◀ Previous | ▶ Next | ⏭ Last
+```
+
+**Keyboard Shortcuts (Streamlit doesn't support, but UI is clickable):**
+- Click **First** → Jump to frame 0
+- Click **Previous** → Go back one frame
+- Click **Next** → Advance one frame
+- Click **Last** → Jump to final frame
+
+**Frame Slider:**
+```
+0 ━━━━━━━━●━━━━━━━━ 300
+          👆 Frame 145
+```
+- Drag to scrub through video
+- Updates frame viewer instantly
+
+---
+
+### Anomaly Thumbnails
+
+**Grid Display:**
+```
+🚨 Detected Anomalies (Top 10)
+┌──────┬──────┬──────┬──────┐
+│ 45   │ 87   │ 129  │ 201  │
+│ 0.012│ 0.018│ 0.009│ 0.015│
+└──────┴──────┴──────┴──────┘
+```
+
+**What You See:**
+- **Thumbnail:** Mini version of anomalous frame
+- **Frame Number:** Click to jump to that frame
+- **Error Value:** Reconstruction error for that frame
+- **Sorted:** Highest error first (worst reconstructions)
+- **Limit:** Top 10 anomalies max (performance)
+
+**Use Cases:**
+- **Quick scan:** See all anomalies at a glance
+- **Compare:** Identify patterns across multiple anomalies
+- **Prioritize:** Focus on highest-error frames first
+
+---
+
+### Export Section
+
+**JSON Export:**
+```json
+{
+  "video_info": {
+    "frame_count": 300,
+    "anomaly_count": 12,
+    "anomaly_rate": 0.04,
+    "processing_time": 2.34
+  },
+  "model_info": {
+    "device": "cuda",
+    "threshold": 0.00507,
+    "batch_size": 64
+  },
+  "frame_data": [
+    {
+      "frame_number": 0,
+      "reconstruction_error": 0.0032,
+      "is_anomaly": false
+    },
+    ...
+  ]
+}
+```
+
+**Use Cases:**
+- Programmatic analysis (Python scripts)
+- Integration with other tools
+- Archival with full metadata
+
+**CSV Export:**
+```csv
+frame_number,reconstruction_error,is_anomaly
+0,0.0032,false
+1,0.0029,false
+45,0.0123,true
+...
+```
+
+**Use Cases:**
+- Excel/Google Sheets analysis
+- Statistical analysis in R
+- Database import
 
 ---
 
@@ -253,32 +532,47 @@ def export_to_xml(result: Dict) -> str:
 
 ## Deployment
 
-### Production Deployment (Docker)
-```dockerfile
-# Add to Dockerfile
-FROM python:3.11-slim
-COPY dashboard.py /app/
-COPY requirements.txt /app/
-RUN pip install -r requirements.txt
-EXPOSE 8501
-CMD ["streamlit", "run", "dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
+### Local Development
+```bash
+# Terminal 1: Start FastAPI backend
+python app.py
+
+# Terminal 2: Launch dashboard
+streamlit run dashboard.py
 ```
 
-### Cloud Hosting (Streamlit Cloud)
-1. Push code to GitHub
-2. Connect at share.streamlit.io
-3. Set secrets for API_URL in dashboard settings
-4. Ensure API is publicly accessible
+### Production Usage
 
-### Reverse Proxy (Nginx)
-```nginx
-location /dashboard/ {
-    proxy_pass http://localhost:8501/;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-}
+**Scenario: API deployed on Render, Dashboard runs locally**
+
+```bash
+# Windows PowerShell
+$env:API_URL = "https://video-anomaly-detection-api.onrender.com"
+streamlit run dashboard.py
+
+# Linux/Mac
+export API_URL="https://video-anomaly-detection-api.onrender.com"
+streamlit run dashboard.py
 ```
+
+The dashboard will connect to the production API automatically. No code changes needed.
+
+**First-time API access:** The Render free tier spins down after 15 minutes of inactivity. First request may take 30-60 seconds to wake up the service.
+
+### Alternative: Streamlit Cloud Hosting
+
+If you want a fully hosted dashboard:
+
+1. Fork this repo on GitHub
+2. Go to https://share.streamlit.io
+3. Connect your repo and select `dashboard.py`
+4. Add secret in Streamlit Cloud dashboard:
+   ```
+   API_URL = "https://video-anomaly-detection-api.onrender.com"
+   ```
+5. Deploy
+
+Your dashboard will be available at `https://yourapp.streamlit.app` and won't sleep on the free tier.
 
 ---
 
