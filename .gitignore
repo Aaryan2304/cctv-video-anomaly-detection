@@ -1,0 +1,123 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# PyTorch model files (too large for git, use Git LFS or external storage)
+outputs/trained_model.pth
+outputs/*.pth
+*.pth
+
+# Training artifacts
+outputs/*.npy
+outputs/*.txt
+outputs/*.log
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Environment variables
+.env
+.env.local
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# IDEs
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Video files (too large for git)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.flv
+*.wmv
+test_videos/*.mp4
+test_videos/*.avi
+cctv_samples/*.mp4
+cctv_samples/*.avi
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/cache/
+
+# Logs
+logs/
+*.log
+
+# Data directories (download separately)
+data/ped2/
+data/ucsd/
+data/raw/
+data/processed/
+
+# Test outputs
+test_outputs/
+results/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# pytest cache
+.pytest_cache/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Screenshots and demo media
+Screenshot*.png
+demo_*.mp4
+sample_*.mp4
+
+# Deployment
+*.pid
+*.sock
+
+# Documentations
+PROJECT_STRUCTURE.md
+UPGRADE_PLAN.md

@@ -1,12 +1,34 @@
 # Video Anomaly Detection System
 
-Video anomaly detection using convolutional autoencoders trained on UCSD Ped2 surveillance dataset. Deployed as FastAPI web service with real-time scoring.
+Production-ready video anomaly detection using unsupervised learning (convolutional autoencoder). Deployed as FastAPI web service with Streamlit dashboard for interactive analysis.
 
 **Metrics (UCSD Ped2):** 92.47% precision, 0.7438 AUC
 
+> **⚠️ Important**: This model is trained on UCSD Ped2 outdoor pedestrian footage. For production deployment on your own cameras, you must retrain on footage from your specific environment.
+
 ## Quick Start
 
-### Demo
+### Interactive Dashboard (Recommended)
+
+```bash
+# Terminal 1: Start API backend
+python app.py
+
+# Terminal 2: Launch Streamlit dashboard
+streamlit run dashboard.py
+# Opens at http://localhost:8501
+```
+
+**Dashboard Features:**
+- Drag-and-drop video upload
+- Interactive anomaly timeline (Plotly)
+- Dynamic threshold adjustment (no re-inference)
+- Frame-by-frame viewer with anomaly highlights
+- Export results (JSON/CSV)
+
+See [DASHBOARD_GUIDE.md](DASHBOARD_GUIDE.md) for full documentation.
+
+### API-Only Demo
 
 ```bash
 python app.py
@@ -209,8 +231,10 @@ requests.post("/set-threshold", json={"threshold": thresholds["balanced_10pct"]}
 
 ```text
 ├── app.py                 # FastAPI web service
+├── dashboard.py           # Streamlit UI (Phase 2)
 ├── main.py                # Training/evaluation pipeline
 ├── config.py              # Configuration management
+├── settings.py            # Pydantic settings (Phase 1)
 ├── models/
 │   ├── autoencoder.py     # ConvolutionalAutoencoder, LightweightAutoencoder
 │   └── detector.py        # AnomalyDetector, EarlyStopping
@@ -221,9 +245,12 @@ requests.post("/set-threshold", json={"threshold": thresholds["balanced_10pct"]}
 ├── evaluation/
 │   ├── metrics.py         # PerformanceEvaluator
 │   └── visualizer.py      # ResultsVisualizer
+├── utils/
+│   └── logging_utils.py   # Structured logging (Phase 1)
 ├── outputs/
 │   ├── trained_model.pth  # Trained weights
 │   └── *.npy              # Training artifacts
+├── DASHBOARD_GUIDE.md     # Dashboard documentation
 └── Dockerfile, render.yaml, requirements.txt
 ```
 

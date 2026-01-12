@@ -15,6 +15,10 @@ matplotlib>=3.5.0
 seaborn>=0.11.0
 plotly>=5.0.0
 
+# Streamlit Dashboard
+streamlit>=1.28.0
+requests>=2.31.0
+
 # Image augmentation
 albumentations>=1.1.0
 
@@ -44,8 +48,8 @@ black>=21.0.0
 flake8>=3.9.0
 
 # Optional: For Jupyter notebook analysis
-jupyter>=1.0.0
-ipywidgets>=7.6.0
+#jupyter>=1.0.0
+#ipywidgets>=7.6.0
 
 # Optional: For advanced metrics and statistical tests
 statsmodels>=0.12.0
