@@ -550,7 +550,7 @@ The current model is already trained on this dataset, so you only need it if ret
 
 ## 📄 License
 
-MIT License - Free for commercial and personal use.
+[Apache License](LICENSE)
 
 UCSD Ped2 dataset used under academic license for training.
 
