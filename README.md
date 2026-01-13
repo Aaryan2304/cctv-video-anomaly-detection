@@ -176,6 +176,33 @@ Content-Type: application/json
 }
 ```
 
+### Prometheus Metrics (Production Monitoring)
+
+For DevOps/infrastructure monitoring, the API exposes Prometheus-compatible metrics:
+
+```http
+GET /metrics/prometheus
+```
+
+**Metrics exposed:**
+- `anomaly_detection_requests_total` - Request counts by endpoint and status
+- `anomaly_detection_request_latency_seconds` - Request latency histogram
+- `anomaly_detection_frames_processed_total` - Total frames processed
+- `anomaly_detection_anomalies_total` - Total anomalies detected
+- `anomaly_detection_active_jobs` - Active background jobs
+- `anomaly_detection_gpu_memory_bytes` - GPU memory usage (if available)
+- `anomaly_detection_inference_latency_seconds` - Model inference latency per batch
+
+**Usage with Prometheus:**
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: 'anomaly-detection'
+    static_configs:
+      - targets: ['localhost:8000']
+    metrics_path: '/metrics/prometheus'
+```
+
 **Full API documentation:** Visit `/docs` endpoint for interactive Swagger UI
 
 ---
