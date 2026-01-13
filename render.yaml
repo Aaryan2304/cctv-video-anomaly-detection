@@ -3,7 +3,7 @@ services:
     name: video-anomaly-detection-api
     env: python
     plan: free
-    buildCommand: "./build.sh"
+    buildCommand: "./deployment/build.sh"
     startCommand: "uvicorn app:app --host 0.0.0.0 --port $PORT"
     healthCheckPath: "/health"
     envVars:
