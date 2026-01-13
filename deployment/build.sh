@@ -15,6 +15,8 @@ echo "Dependencies installed successfully!"
 mkdir -p static
 mkdir -p outputs
 mkdir -p utils
+mkdir -p logs
+mkdir -p temp
 
 # Verify critical files exist
 if [ ! -f "app.py" ]; then
@@ -24,6 +26,11 @@ fi
 
 if [ ! -f "settings.py" ]; then
     echo "ERROR: settings.py not found!"
+    exit 1
+fi
+
+if [ ! -f "utils/logging_utils.py" ]; then
+    echo "ERROR: utils/logging_utils.py not found!"
     exit 1
 fi
 

@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Model registry for video anomaly detection checkpoints",
+  "models": [
+    {
+      "version": "1.0.0",
+      "filename": "trained_model.pth",
+      "active": true,
+      "created_at": "2026-01-12T00:00:00Z",
+      "training_info": {
+        "dataset": "ucsd_ped2",
+        "epochs": 30,
+        "final_loss": 0.0023,
+        "threshold": 0.005069,
+        "latent_dim": 256,
+        "frame_size": 64
+      },
+      "metrics": {
+        "auc": 0.7438,
+        "precision": 0.9247,
+        "recall": 0.85,
+        "f1_score": 0.886
+      },
+      "notes": "Initial production model trained on UCSD Ped2 dataset"
+    }
+  ],
+  "rollback_history": []
+}

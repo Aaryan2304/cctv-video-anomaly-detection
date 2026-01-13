@@ -39,6 +39,8 @@ python-jose[cryptography]>=3.3.0
 
 # Production
 gunicorn>=21.0.0
+slowapi>=0.1.9
+psutil>=5.9.0
 
 # Development and testing
 pytest>=7.0.0

@@ -7,20 +7,26 @@ Production-grade implementation with:
 - Input validation (file size, duration, format)
 - Thread pool for non-blocking inference
 - Batched frame processing
+- Rate limiting (slowapi)
+- Enhanced health checks (liveness/readiness probes)
 """
 
 import asyncio
 import io
+import json
 import os
+import shutil
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
+import psutil
 import torch
 import uvicorn
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -29,6 +35,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from data.preprocessing import VideoPreprocessor
 from models.autoencoder import ConvolutionalAutoencoder
@@ -50,8 +59,13 @@ _device: Optional[torch.device] = None
 _preprocessor: Optional[VideoPreprocessor] = None
 _executor: Optional[ThreadPoolExecutor] = None
 _settings: Optional[Settings] = None
+_startup_time: Optional[datetime] = None
+_model_version: Optional[str] = None
 
 logger = get_logger(__name__)
+
+# Rate limiter (configured at startup)
+limiter = Limiter(key_func=get_remote_address)
 
 
 # Response models
@@ -73,15 +87,121 @@ class HealthResponse(BaseModel):
     settings: Optional[Dict[str, Any]] = None
 
 
+class LivenessResponse(BaseModel):
+    """Liveness probe response - is the process running?"""
+    status: str
+    uptime_seconds: float
+    timestamp: str
+
+
+class ReadinessResponse(BaseModel):
+    """Readiness probe response - can the service handle requests?"""
+    ready: bool
+    model_loaded: bool
+    checks: Dict[str, bool]
+    details: Optional[Dict[str, Any]] = None
+
+
+class SystemMetrics(BaseModel):
+    """System resource metrics for monitoring."""
+    cpu_percent: float
+    memory_percent: float
+    memory_used_mb: float
+    disk_free_gb: float
+    gpu_available: bool
+    gpu_memory_used_mb: Optional[float] = None
+    gpu_memory_total_mb: Optional[float] = None
+
+
 class ValidationError(BaseModel):
     detail: str
     field: Optional[str] = None
     limit: Optional[Any] = None
 
 
+def _get_system_metrics() -> SystemMetrics:
+    """Collect system resource metrics."""
+    memory = psutil.virtual_memory()
+    # Use current working directory for cross-platform disk check
+    disk = shutil.disk_usage(os.getcwd())
+    
+    gpu_used = None
+    gpu_total = None
+    gpu_available = torch.cuda.is_available()
+    
+    if gpu_available:
+        try:
+            gpu_used = torch.cuda.memory_allocated(0) / 1024 / 1024
+            gpu_total = torch.cuda.get_device_properties(0).total_memory / 1024 / 1024
+        except Exception:
+            pass
+    
+    return SystemMetrics(
+        cpu_percent=psutil.cpu_percent(interval=0.1),
+        memory_percent=memory.percent,
+        memory_used_mb=memory.used / 1024 / 1024,
+        disk_free_gb=disk.free / 1024 / 1024 / 1024,
+        gpu_available=gpu_available,
+        gpu_memory_used_mb=gpu_used,
+        gpu_memory_total_mb=gpu_total,
+    )
+
+
+def _check_model_inference_latency(timeout_ms: float = 100.0) -> tuple[bool, float]:
+    """
+    Quick inference latency check with dummy input.
+    
+    Returns (passed, latency_ms).
+    """
+    if _detector is None or _device is None:
+        return False, 0.0
+    
+    try:
+        dummy = torch.randn(1, 1, 64, 64, device=_device)
+        _detector.model.eval()
+        
+        start = time.perf_counter()
+        with torch.no_grad():
+            _ = _detector.model(dummy)
+        latency_ms = (time.perf_counter() - start) * 1000
+        
+        return latency_ms < timeout_ms, latency_ms
+    except Exception:
+        return False, 0.0
+
+
+def _get_model_version_from_registry(model_path: Path) -> str:
+    """
+    Look up model version from model_registry.json.
+    
+    Returns version string or generates one from file mtime.
+    """
+    registry_path = model_path.parent / "model_registry.json"
+    
+    if registry_path.exists():
+        try:
+            with open(registry_path) as f:
+                registry = json.load(f)
+            
+            # Find matching model by filename
+            model_name = model_path.name
+            for entry in registry.get("models", []):
+                if entry.get("filename") == model_name and entry.get("active", False):
+                    return entry.get("version", "unknown")
+        except Exception:
+            pass
+    
+    # Fallback: generate version from file modification time
+    if model_path.exists():
+        mtime = datetime.fromtimestamp(model_path.stat().st_mtime, tz=timezone.utc)
+        return f"1.0.0-{mtime.strftime('%Y%m%d')}"
+    
+    return "unknown"
+
+
 def _load_model(settings: Settings) -> bool:
     """Load trained model. Called once at startup."""
-    global _detector, _device, _preprocessor
+    global _detector, _device, _preprocessor, _model_version
     
     try:
         _device = settings.torch_device
@@ -100,6 +220,7 @@ def _load_model(settings: Settings) -> bool:
             model = ConvolutionalAutoencoder(input_channels=1, latent_dim=settings.latent_dim)
             _detector = AnomalyDetector(model, _device, config=config_obj)
             _detector.threshold = 0.005069
+            _model_version = "default-1.0.0"
         else:
             logger.info(f"Loading model from {model_path}")
             checkpoint = torch.load(model_path, map_location=_device, weights_only=False)
@@ -110,7 +231,10 @@ def _load_model(settings: Settings) -> bool:
             _detector = AnomalyDetector(model, _device, config=config_obj)
             _detector.threshold = checkpoint.get("threshold") or 0.005069
             
-            logger.info(f"Model loaded, threshold={_detector.threshold:.6f}")
+            # Extract model version from checkpoint or registry
+            _model_version = checkpoint.get("version", _get_model_version_from_registry(model_path))
+            
+            logger.info(f"Model loaded, version={_model_version}, threshold={_detector.threshold:.6f}")
         
         _preprocessor = VideoPreprocessor(
             target_size=settings.frame_shape,
@@ -261,9 +385,10 @@ def _process_video_batched(video_path: str, settings: Settings) -> tuple:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    global _executor, _settings
+    global _executor, _settings, _startup_time
     
     # Startup
+    _startup_time = datetime.now(timezone.utc)
     _settings = get_settings()
     configure_logging(
         level=_settings.log_level,
@@ -271,7 +396,7 @@ async def lifespan(app: FastAPI):
         log_file=_settings.log_file,
     )
     
-    logger.info("Starting Video Anomaly Detection API")
+    logger.info("Starting Video Anomaly Detection API v3.0.0")
     
     _executor = ThreadPoolExecutor(
         max_workers=_settings.thread_pool_size,
@@ -284,6 +409,7 @@ async def lifespan(app: FastAPI):
     # Create directories
     os.makedirs(_settings.static_dir, exist_ok=True)
     os.makedirs(_settings.temp_dir, exist_ok=True)
+    os.makedirs("logs", exist_ok=True)
     
     yield
     
@@ -297,11 +423,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Video Anomaly Detection API",
     description="Real-time video anomaly detection using unsupervised learning",
-    version="2.0.0",
+    version="3.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+# Rate limiter state and exception handler
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -345,21 +475,116 @@ async def health_check():
         status="healthy" if _detector else "degraded",
         model_loaded=_detector is not None,
         device=str(_device) if _device else "unknown",
-        version="2.0.0",
+        version="3.0.0",
         settings={
             "batch_size": settings.batch_size,
             "max_file_size_mb": settings.max_file_size_mb,
             "max_video_duration_sec": settings.max_video_duration_sec,
+            "rate_limit_enabled": settings.rate_limit_enabled,
+            "model_version": _model_version,
         },
     )
 
 
+@app.get("/live", response_model=LivenessResponse)
+async def liveness_probe():
+    """
+    Kubernetes liveness probe.
+    
+    Returns 200 if process is running. Used by orchestrators to detect
+    hung processes that need restart.
+    """
+    uptime = 0.0
+    if _startup_time:
+        uptime = (datetime.now(timezone.utc) - _startup_time).total_seconds()
+    
+    return LivenessResponse(
+        status="alive",
+        uptime_seconds=uptime,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@app.get("/ready", response_model=ReadinessResponse)
+async def readiness_probe():
+    """
+    Kubernetes readiness probe.
+    
+    Returns 200 only if service can handle requests:
+    - Model loaded and functional
+    - Sufficient disk space
+    - Inference latency acceptable
+    """
+    settings = get_settings()
+    
+    # Check model loaded
+    model_ok = _detector is not None and _device is not None
+    
+    # Check inference latency (100ms threshold)
+    inference_ok, latency_ms = _check_model_inference_latency(timeout_ms=100.0)
+    
+    # Check disk space (>100MB free)
+    try:
+        # Cross-platform: use temp_dir if exists, else current working directory
+        check_path = settings.temp_dir if os.path.exists(settings.temp_dir) else os.getcwd()
+        disk = shutil.disk_usage(check_path)
+        disk_ok = disk.free > 100 * 1024 * 1024
+        disk_free_mb = disk.free / 1024 / 1024
+    except Exception:
+        disk_ok = True
+        disk_free_mb = 0
+    
+    # Check memory (less than 90% used)
+    memory = psutil.virtual_memory()
+    memory_ok = memory.percent < 90
+    
+    all_checks_pass = model_ok and inference_ok and disk_ok and memory_ok
+    
+    response = ReadinessResponse(
+        ready=all_checks_pass,
+        model_loaded=model_ok,
+        checks={
+            "model": model_ok,
+            "inference_latency": inference_ok,
+            "disk_space": disk_ok,
+            "memory": memory_ok,
+        },
+        details={
+            "inference_latency_ms": round(latency_ms, 2),
+            "disk_free_mb": round(disk_free_mb, 2),
+            "memory_percent": memory.percent,
+            "model_version": _model_version,
+        },
+    )
+    
+    if not all_checks_pass:
+        # Return 503 but still include diagnostic info
+        return JSONResponse(
+            status_code=503,
+            content=response.model_dump(),
+        )
+    
+    return response
+
+
+@app.get("/metrics", response_model=SystemMetrics)
+async def system_metrics():
+    """
+    System resource metrics for monitoring dashboards.
+    
+    Returns CPU, memory, disk, and GPU utilization.
+    """
+    return _get_system_metrics()
+
+
 @app.post("/analyze-video", response_model=AnomalyResult)
-async def analyze_video(file: UploadFile = File(...)):
+@limiter.limit(lambda: f"{get_settings().rate_limit_requests}/minute" if get_settings().rate_limit_enabled else "1000/minute")
+async def analyze_video(request: Request, file: UploadFile = File(...)):
     """
     Analyze video for anomalies.
     
     Validates input, processes frames in batches, returns per-frame scores.
+    Rate limited to prevent abuse.
     """
     if _detector is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
@@ -484,6 +709,7 @@ async def get_model_info():
         "threshold": threshold,
         "device": str(_device),
         "status": "loaded",
+        "model_version": _model_version,
         "threshold_presets": {
             "conservative": 0.004213,
             "balanced": 0.004005,
@@ -491,6 +717,115 @@ async def get_model_info():
             "sensitive": 0.003357,
         },
     }
+
+
+@app.get("/model-registry")
+async def get_model_registry():
+    """
+    Get model registry with all available model versions.
+    
+    Returns version history, active model, and training metrics.
+    """
+    registry_path = Path("outputs/model_registry.json")
+    
+    if not registry_path.exists():
+        return {
+            "schema_version": "1.0.0",
+            "models": [],
+            "active_model": _model_version,
+            "message": "No registry file found. Using embedded version info.",
+        }
+    
+    try:
+        with open(registry_path) as f:
+            registry = json.load(f)
+        
+        registry["active_model"] = _model_version
+        return registry
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read registry: {e}")
+
+
+@app.post("/model-rollback")
+async def rollback_model(version: str):
+    """
+    Rollback to a previous model version.
+    
+    Requires model file to exist in outputs directory.
+    This is a hot-reload operation - no restart required.
+    """
+    global _detector, _model_version
+    
+    registry_path = Path("outputs/model_registry.json")
+    if not registry_path.exists():
+        raise HTTPException(status_code=404, detail="Model registry not found")
+    
+    try:
+        with open(registry_path) as f:
+            registry = json.load(f)
+        
+        # Find requested version
+        target_model = None
+        for model in registry.get("models", []):
+            if model.get("version") == version:
+                target_model = model
+                break
+        
+        if not target_model:
+            available = [m.get("version") for m in registry.get("models", [])]
+            raise HTTPException(
+                status_code=404,
+                detail=f"Version {version} not found. Available: {available}",
+            )
+        
+        # Load the model
+        model_path = Path("outputs") / target_model["filename"]
+        if not model_path.exists():
+            raise HTTPException(status_code=404, detail=f"Model file not found: {model_path}")
+        
+        settings = get_settings()
+        checkpoint = torch.load(model_path, map_location=_device, weights_only=False)
+        
+        model = ConvolutionalAutoencoder(input_channels=1, latent_dim=settings.latent_dim)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        
+        class ConfigCompat:
+            MIXED_PRECISION = settings.mixed_precision
+        
+        _detector = AnomalyDetector(model, _device, config=ConfigCompat())
+        _detector.threshold = target_model.get("training_info", {}).get("threshold", 0.005069)
+        
+        # Capture old version BEFORE updating
+        old_version = _model_version or "unknown"
+        _model_version = version
+        
+        # Update registry to mark new active model
+        for m in registry.get("models", []):
+            m["active"] = m.get("version") == version
+        
+        # Record rollback in history
+        registry.setdefault("rollback_history", []).append({
+            "from_version": old_version,
+            "to_version": version,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        
+        with open(registry_path, "w") as f:
+            json.dump(registry, f, indent=2)
+        
+        logger.info(f"Model rolled back to version {version}")
+        
+        return {
+            "message": f"Successfully rolled back to {version}",
+            "active_version": version,
+            "threshold": _detector.threshold,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Rollback failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Rollback failed: {e}")
 
 
 @app.post("/set-threshold")

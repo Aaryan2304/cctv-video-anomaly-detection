@@ -2,19 +2,88 @@ version: '3.8'
 
 services:
   anomaly-detection-api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: anomaly-detection-api:latest
+    container_name: anomaly-api
     ports:
       - "8000:8000"
     environment:
-      - PORT=8000
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+      - APP_WORKERS=1
+      - APP_LOG_FORMAT=json
+      - APP_LOG_LEVEL=INFO
+      - APP_RATE_LIMIT_ENABLED=true
+      - APP_RATE_LIMIT_REQUESTS=10
+      - APP_MAX_FILE_SIZE_MB=100
+      - APP_MAX_VIDEO_DURATION_SEC=300
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./outputs:/app/outputs:ro
+      - api-temp:/app/temp
+      - api-logs:/app/logs
+    restart: unless-stopped
+    
+    # Resource limits for production
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    # Note: read_only disabled to allow temp file writes; use named volumes for isolation
+    tmpfs:
+      - /tmp:size=100M
+    
+    # Health checks
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Development service with hot reload
+  anomaly-detection-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: anomaly-api-dev
+    ports:
+      - "8001:8000"
+    environment:
+      - APP_DEBUG=true
+      - APP_LOG_FORMAT=text
+      - APP_LOG_LEVEL=DEBUG
       - PYTHONPATH=/app
     volumes:
+      - .:/app
       - ./outputs:/app/outputs
-      - ./static:/app/static
-    restart: unless-stopped
+    profiles:
+      - dev
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+
+volumes:
+  api-temp:
+  api-logs:
