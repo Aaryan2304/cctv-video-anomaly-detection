@@ -41,6 +41,11 @@ python-jose[cryptography]>=3.3.0
 gunicorn>=21.0.0
 slowapi>=0.1.9
 psutil>=5.9.0
+prometheus-client>=0.17.0
+
+# ONNX Export
+onnx>=1.14.0
+onnxruntime>=1.16.0
 
 # Development and testing
 pytest>=7.0.0

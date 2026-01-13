@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Render.com Build Script
-# Phase 1 & 2 Production Build
+# Phase 1, 2, 3 & 4 Production Build
 
 echo "Starting build process..."
 
@@ -41,5 +41,8 @@ if [ ! -f "outputs/trained_model.pth" ]; then
 fi
 
 echo "Build process completed successfully!"
-echo "Phase 1 features: ✓ Pydantic settings, ✓ Structured logging, ✓ Batched inference"
-echo "API will be available at /health, /analyze-video, /calibrate-threshold"
+echo "Phase 1: ✓ Pydantic settings, ✓ Structured logging, ✓ Batched inference"
+echo "Phase 2: ✓ Streamlit dashboard, ✓ Plotly timeline, ✓ Threshold slider"
+echo "Phase 3: ✓ Rate limiting, ✓ Health probes, ✓ Model versioning"
+echo "Phase 4: ✓ Prometheus metrics, ✓ Async job queue, ✓ ONNX export"
+echo "API endpoints: /health, /metrics/prometheus, /jobs/submit, /analyze-video"

@@ -1,125 +1,115 @@
-# Deployment Scripts
+# Deployment Information
 
-This directory contains scripts for building and deploying the application to various platforms.
+This system is deployed as two separate services that work together to provide video anomaly detection.
 
-## Files
+---
 
-### Build Script
+## 🌐 Live Services
 
-**`build.sh`**
-- Render.com build script (Linux/cloud deployment)
-- Installs dependencies via pip
-- Creates necessary directories
-- Validates critical files (app.py, settings.py)
-- Checks for trained model
-- Referenced by `render.yaml` in root directory
+### 1. API Service
+**URL:** https://video-anomaly-detection-api.onrender.com
 
-### Deployment Scripts
+**What it does:**
+- Processes uploaded videos and detects anomalies
+- Provides REST API for programmatic access
+- Hosts interactive API documentation at `/docs`
 
-**`deploy.sh`** (Linux/Mac)
-- Quick deployment to Render.com via git push
-- Commits all changes with timestamp
-- Pushes to main branch (triggers auto-deploy)
-- Usage: `bash deployment/deploy.sh`
+**Who should use it:**
+- Developers integrating anomaly detection into their applications
+- Users wanting to test API endpoints directly
+- Anyone needing programmatic access to the system
 
-**`deploy.bat`** (Windows)
-- Windows equivalent of deploy.sh
-- Same functionality for Windows users
-- Usage: `deployment\deploy.bat`
+### 2. Dashboard Service
+**URL:** https://video-anomaly-detection-dashboard.onrender.com
 
-## Deployment Platforms
+**What it does:**
+- User-friendly interface for uploading and analyzing videos
+- Interactive timeline showing anomaly detection results
+- Adjustable sensitivity controls
+- Frame-by-frame viewer with export capabilities
 
-### Render.com (Recommended)
+**Who should use it:**
+- Non-technical users who need to analyze surveillance footage
+- Anyone preferring a visual interface over API calls
+- Users wanting to explore results interactively
+
+---
+
+## 💡 Why Two Services?
+
+**Separation of Concerns:**
+- API handles all the heavy processing (AI model, video analysis)
+- Dashboard provides the user interface
+- Each can be scaled independently based on usage
+
+**Flexibility:**
+- Use the dashboard for interactive analysis
+- Use the API to integrate into your own applications
+- Run dashboard locally while using the cloud API
+
+---
+
+## 🚀 Quick Start
+
+### Using the Live Services
+
+**Option 1: Dashboard (Easiest)**
+1. Visit https://video-anomaly-detection-dashboard.onrender.com
+2. Upload your video
+3. View results with interactive charts
+
+**Option 2: API (For Developers)**
+1. Visit https://video-anomaly-detection-api.onrender.com/docs
+2. Try the `/analyze-video` endpoint
+3. Upload a video and receive JSON results
+
+### Running Locally
+
+**Both Services:**
 ```bash
-# One-time setup
-# 1. Connect GitHub repo to Render.com
-# 2. Render auto-detects render.yaml at root
-# 3. Deployment happens automatically on git push
+# Terminal 1: Start API
+python app.py
+# Runs at http://localhost:8000
 
-# To deploy
-bash deployment/deploy.sh  # Linux/Mac
-deployment\deploy.bat      # Windows
+# Terminal 2: Start Dashboard
+streamlit run dashboard.py
+# Runs at http://localhost:8501
 ```
 
-### Docker (Local or Cloud)
+**Dashboard Only (connecting to cloud API):**
 ```bash
-# Docker configs at root level:
-# - Dockerfile
-# - docker-compose.yml
+# Windows
+$env:API_URL = "https://video-anomaly-detection-api.onrender.com"
+streamlit run dashboard.py
 
-# Build and run locally
-docker-compose up --build
-
-# Deploy to Docker registry
-docker build -t yourusername/video-anomaly-detection .
-docker push yourusername/video-anomaly-detection
+# Linux/Mac
+export API_URL="https://video-anomaly-detection-api.onrender.com"
+streamlit run dashboard.py
 ```
 
-### Manual Deployment
-```bash
-# Install dependencies
-pip install -r requirements.txt
+---
 
-# Run application
-uvicorn app:app --host 0.0.0.0 --port 8000
-```
+## 📝 Important Notes
 
-## Configuration Notes
+**First Request Delay:**
+- Free hosting services "sleep" after 15 minutes of inactivity
+- First request may take 30-60 seconds while service wakes up
+- Subsequent requests are fast (< 5 seconds)
 
-### Build Script Location
-- `build.sh` is in `deployment/` but referenced from root via `render.yaml`
-- Path in render.yaml: `./deployment/build.sh`
-- Do not move build.sh without updating render.yaml
+**File Limitations:**
+- Maximum file size: 100MB
+- Maximum video duration: 5 minutes
+- Supported formats: MP4, AVI, MOV
 
-### Environment Variables
-- Set in Render.com dashboard or `.env` file
-- See `.env.example` for all available settings
-- Production deployments should use environment variables, not .env files
+**Processing Speed:**
+- Cloud (CPU only): 5-10 seconds per 10-second video
+- Local with GPU: ~0.2 seconds per 10-second video
+- Local without GPU: 2-5 seconds per 10-second video
 
-### Model Files
-- `outputs/trained_model.pth` should be tracked via Git LFS or uploaded separately
-- build.sh checks for model existence and warns if missing
-- Model is loaded at application startup
+---
 
-## Pre-Deployment Checklist
+## 🔗 Additional Resources
 
-Before deploying to production:
-
-1. ✅ Trained model exists at `outputs/trained_model.pth`
-2. ✅ Environment variables configured (or .env file for local)
-3. ✅ Dependencies up to date in `requirements.txt`
-4. ✅ All tests passing (if you have tests)
-5. ✅ Git committed and pushed to main branch
-
-## Troubleshooting
-
-**Build fails on Render:**
-- Check build logs in Render dashboard
-- Verify build.sh has execute permissions: `chmod +x deployment/build.sh`
-- Ensure all required files are committed to git
-
-**Application won't start:**
-- Check that app.py and settings.py exist at root
-- Verify model file is present or disable model loading for initial deploy
-- Check Render logs for Python errors
-
-**API not accessible:**
-- Render.com provides HTTPS URL automatically
-- Check health endpoint: `https://your-app.onrender.com/health`
-- Verify PORT environment variable is set correctly
-
-## Quick Reference
-
-```bash
-# Local development
-docker-compose up
-
-# Deploy to Render (auto-detects on push)
-bash deployment/deploy.sh
-
-# Manual deployment (any platform)
-pip install -r requirements.txt
-uvicorn app:app --host 0.0.0.0 --port 8000
-```
-
-See [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md) in root for comprehensive deployment instructions.
+- **Complete Deployment Guide:** See [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md) for detailed setup instructions
+- **Dashboard User Guide:** See [DASHBOARD_GUIDE.md](../DASHBOARD_GUIDE.md) for feature explanations
+- **Project Overview:** See main [README.md](../README.md) for technical details

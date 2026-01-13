@@ -9,6 +9,8 @@ Production-grade implementation with:
 - Batched frame processing
 - Rate limiting (slowapi)
 - Enhanced health checks (liveness/readiness probes)
+- Prometheus metrics
+- Async job queue for long videos
 """
 
 import asyncio
@@ -18,6 +20,7 @@ import os
 import shutil
 import tempfile
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -29,11 +32,18 @@ import numpy as np
 import psutil
 import torch
 import uvicorn
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -66,6 +76,54 @@ logger = get_logger(__name__)
 
 # Rate limiter (configured at startup)
 limiter = Limiter(key_func=get_remote_address)
+
+# Prometheus Metrics
+REQUEST_COUNT = Counter(
+    "anomaly_detection_requests_total",
+    "Total number of anomaly detection requests",
+    ["endpoint", "status"],
+)
+REQUEST_LATENCY = Histogram(
+    "anomaly_detection_request_latency_seconds",
+    "Request latency in seconds",
+    ["endpoint"],
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
+)
+FRAMES_PROCESSED = Counter(
+    "anomaly_detection_frames_processed_total",
+    "Total frames processed",
+)
+ANOMALIES_DETECTED = Counter(
+    "anomaly_detection_anomalies_total",
+    "Total anomalies detected",
+)
+ACTIVE_JOBS = Gauge(
+    "anomaly_detection_active_jobs",
+    "Number of active background jobs",
+)
+GPU_MEMORY_USED = Gauge(
+    "anomaly_detection_gpu_memory_bytes",
+    "GPU memory used in bytes",
+)
+MODEL_INFERENCE_LATENCY = Histogram(
+    "anomaly_detection_inference_latency_seconds",
+    "Model inference latency per batch",
+    buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
+)
+
+# Async Job Queue
+# In-memory job store (for production, use Redis or database)
+_jobs: Dict[str, Dict[str, Any]] = {}
+_job_results: Dict[str, Any] = {}
+MAX_JOBS = 100  # Limit to prevent memory exhaustion
+JOB_RETENTION_SEC = 3600  # Keep completed jobs for 1 hour
+
+
+class JobStatus:
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 # Response models
@@ -117,6 +175,26 @@ class ValidationError(BaseModel):
     detail: str
     field: Optional[str] = None
     limit: Optional[Any] = None
+
+
+class JobResponse(BaseModel):
+    """Async job submission response."""
+    job_id: str
+    status: str
+    message: str
+    created_at: str
+
+
+class JobStatusResponse(BaseModel):
+    """Job status query response."""
+    job_id: str
+    status: str
+    created_at: str
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    progress: Optional[float] = None
+    result: Optional[AnomalyResult] = None
+    error: Optional[str] = None
 
 
 def _get_system_metrics() -> SystemMetrics:
@@ -354,12 +432,16 @@ def _process_video_batched(video_path: str, settings: Settings) -> tuple:
     with torch.no_grad():
         for i in range(0, len(frames_tensor), batch_size):
             batch = frames_tensor[i : i + batch_size]
+            batch_start = time.perf_counter()
             
             if _detector.scaler is not None and _device.type == "cuda":
                 with torch.amp.autocast("cuda"):
                     reconstructed = _detector.model(batch)
             else:
                 reconstructed = _detector.model(batch)
+            
+            # Track batch inference latency
+            MODEL_INFERENCE_LATENCY.observe(time.perf_counter() - batch_start)
             
             errors = ((batch - reconstructed) ** 2).mean(dim=[1, 2, 3])
             reconstruction_errors.extend(errors.cpu().tolist())
@@ -370,6 +452,10 @@ def _process_video_batched(video_path: str, settings: Settings) -> tuple:
     anomaly_count = sum(anomaly_flags)
     
     processing_time = time.perf_counter() - start_time
+    
+    # Update Prometheus counters
+    FRAMES_PROCESSED.inc(len(frames))
+    ANOMALIES_DETECTED.inc(anomaly_count)
     
     log_inference(
         logger.logger,
@@ -577,6 +663,226 @@ async def system_metrics():
     return _get_system_metrics()
 
 
+@app.get("/metrics/prometheus")
+async def prometheus_metrics():
+    """
+    Prometheus-format metrics endpoint.
+    
+    Exposes:
+    - Request counts and latencies
+    - Frames processed / anomalies detected
+    - Active background jobs
+    - GPU memory usage (if available)
+    
+    Configure Prometheus scrape target: http://host:8000/metrics/prometheus
+    """
+    # Update GPU memory gauge
+    if torch.cuda.is_available():
+        try:
+            GPU_MEMORY_USED.set(torch.cuda.memory_allocated(0))
+        except Exception:
+            pass
+    
+    # Update active jobs gauge
+    active = sum(1 for j in _jobs.values() if j.get("status") in (JobStatus.PENDING, JobStatus.PROCESSING))
+    ACTIVE_JOBS.set(active)
+    
+    return PlainTextResponse(
+        content=generate_latest().decode("utf-8"),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+
+
+# Async Job Queue Endpoints
+
+def _cleanup_old_jobs():
+    """Remove completed jobs older than retention period."""
+    now = datetime.now(timezone.utc)
+    expired = []
+    for job_id, job in _jobs.items():
+        if job.get("status") in (JobStatus.COMPLETED, JobStatus.FAILED):
+            completed_at = job.get("completed_at")
+            if completed_at:
+                age = (now - datetime.fromisoformat(completed_at.replace("Z", "+00:00"))).total_seconds()
+                if age > JOB_RETENTION_SEC:
+                    expired.append(job_id)
+    
+    for job_id in expired:
+        _jobs.pop(job_id, None)
+        _job_results.pop(job_id, None)
+
+
+def _process_job(job_id: str, video_path: str, settings: Settings):
+    """Background job processor for async video analysis."""
+    try:
+        _jobs[job_id]["status"] = JobStatus.PROCESSING
+        _jobs[job_id]["started_at"] = datetime.now(timezone.utc).isoformat()
+        
+        # Process video
+        result = _process_video_batched(video_path, settings)
+        frame_count, anomaly_count, scores, flags, processing_time = result
+        
+        # Store result
+        _job_results[job_id] = AnomalyResult(
+            frame_count=frame_count,
+            anomaly_count=anomaly_count,
+            anomaly_rate=anomaly_count / frame_count if frame_count > 0 else 0,
+            anomaly_scores=scores,
+            anomaly_flags=flags,
+            processing_time=processing_time,
+            model_info={
+                "device": str(_device),
+                "threshold": _detector.threshold,
+                "model_parameters": _detector.model.get_model_info()["total_parameters"],
+                "batch_size": settings.batch_size,
+            },
+        )
+        
+        _jobs[job_id]["status"] = JobStatus.COMPLETED
+        _jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
+        
+        REQUEST_COUNT.labels(endpoint="/jobs", status="success").inc()
+        
+    except Exception as e:
+        _jobs[job_id]["status"] = JobStatus.FAILED
+        _jobs[job_id]["error"] = str(e)
+        _jobs[job_id]["completed_at"] = datetime.now(timezone.utc).isoformat()
+        REQUEST_COUNT.labels(endpoint="/jobs", status="error").inc()
+        logger.exception(f"Job {job_id} failed: {e}")
+    
+    finally:
+        # Cleanup temp file
+        if os.path.exists(video_path):
+            try:
+                os.unlink(video_path)
+            except Exception:
+                pass
+
+
+@app.post("/jobs/submit", response_model=JobResponse)
+async def submit_job(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    """
+    Submit video for async background processing.
+    
+    Returns immediately with job_id. Poll /jobs/{job_id} for status.
+    Useful for long videos that exceed request timeout.
+    """
+    if _detector is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    
+    # Cleanup old jobs
+    _cleanup_old_jobs()
+    
+    # Check job limit
+    active_count = sum(1 for j in _jobs.values() if j.get("status") in (JobStatus.PENDING, JobStatus.PROCESSING))
+    if active_count >= MAX_JOBS:
+        raise HTTPException(status_code=429, detail=f"Too many active jobs. Max: {MAX_JOBS}")
+    
+    settings = get_settings()
+    
+    # Read and validate file
+    content = await file.read()
+    file_size = len(content)
+    
+    validation_error = _validate_video_file(
+        filename=file.filename or "",
+        content_type=file.content_type or "",
+        file_size=file_size,
+        settings=settings,
+    )
+    if validation_error:
+        raise HTTPException(status_code=400, detail=validation_error.detail)
+    
+    # Save to temp file
+    suffix = Path(file.filename).suffix if file.filename else ".mp4"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=settings.temp_dir) as tmp:
+        tmp.write(content)
+        temp_path = tmp.name
+    
+    # Create job
+    job_id = str(uuid.uuid4())[:12]
+    now = datetime.now(timezone.utc).isoformat()
+    
+    _jobs[job_id] = {
+        "status": JobStatus.PENDING,
+        "created_at": now,
+        "started_at": None,
+        "completed_at": None,
+        "error": None,
+    }
+    
+    # Queue background processing
+    background_tasks.add_task(_process_job, job_id, temp_path, settings)
+    
+    return JobResponse(
+        job_id=job_id,
+        status=JobStatus.PENDING,
+        message="Job submitted successfully. Poll /jobs/{job_id} for status.",
+        created_at=now,
+    )
+
+
+@app.get("/jobs/{job_id}", response_model=JobStatusResponse)
+async def get_job_status(job_id: str):
+    """
+    Get status and result of async job.
+    
+    Returns result when status is 'completed'.
+    """
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    
+    job = _jobs[job_id]
+    result = _job_results.get(job_id)
+    
+    return JobStatusResponse(
+        job_id=job_id,
+        status=job["status"],
+        created_at=job["created_at"],
+        started_at=job.get("started_at"),
+        completed_at=job.get("completed_at"),
+        result=result,
+        error=job.get("error"),
+    )
+
+
+@app.get("/jobs")
+async def list_jobs():
+    """List all jobs with their current status."""
+    return {
+        "total": len(_jobs),
+        "jobs": [
+            {
+                "job_id": job_id,
+                "status": job["status"],
+                "created_at": job["created_at"],
+            }
+            for job_id, job in _jobs.items()
+        ],
+    }
+
+
+@app.delete("/jobs/{job_id}")
+async def cancel_job(job_id: str):
+    """
+    Cancel or delete a job.
+    
+    Note: Cannot cancel already-processing jobs (in-memory queue limitation).
+    """
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    
+    job = _jobs[job_id]
+    
+    if job["status"] == JobStatus.PROCESSING:
+        raise HTTPException(status_code=409, detail="Cannot cancel job in progress")
+    
+    _jobs.pop(job_id, None)
+    _job_results.pop(job_id, None)
+    
+    return {"message": f"Job {job_id} deleted"}
+
+
 @app.post("/analyze-video", response_model=AnomalyResult)
 @limiter.limit(lambda: f"{get_settings().rate_limit_requests}/minute" if get_settings().rate_limit_enabled else "1000/minute")
 async def analyze_video(request: Request, file: UploadFile = File(...)):
@@ -586,7 +892,10 @@ async def analyze_video(request: Request, file: UploadFile = File(...)):
     Validates input, processes frames in batches, returns per-frame scores.
     Rate limited to prevent abuse.
     """
+    start_time = time.perf_counter()
+    
     if _detector is None:
+        REQUEST_COUNT.labels(endpoint="/analyze-video", status="error").inc()
         raise HTTPException(status_code=503, detail="Model not loaded")
     
     settings = get_settings()
@@ -603,6 +912,7 @@ async def analyze_video(request: Request, file: UploadFile = File(...)):
         settings=settings,
     )
     if validation_error:
+        REQUEST_COUNT.labels(endpoint="/analyze-video", status="error").inc()
         raise HTTPException(status_code=400, detail=validation_error.detail)
     
     # Save to temp file
@@ -615,6 +925,7 @@ async def analyze_video(request: Request, file: UploadFile = File(...)):
         # Validate video metadata
         validation_error = _validate_video_metadata(temp_path, settings)
         if validation_error:
+            REQUEST_COUNT.labels(endpoint="/analyze-video", status="error").inc()
             raise HTTPException(status_code=400, detail=validation_error.detail)
         
         # Process in thread pool (non-blocking)
@@ -627,6 +938,10 @@ async def analyze_video(request: Request, file: UploadFile = File(...)):
         )
         
         frame_count, anomaly_count, scores, flags, processing_time = result
+        
+        # Track metrics
+        REQUEST_COUNT.labels(endpoint="/analyze-video", status="success").inc()
+        REQUEST_LATENCY.labels(endpoint="/analyze-video").observe(time.perf_counter() - start_time)
         
         return AnomalyResult(
             frame_count=frame_count,
@@ -907,106 +1222,15 @@ async def calibrate_threshold(target_anomaly_rate: float):
         raise HTTPException(status_code=500, detail=f"Calibration error: {str(e)}")
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def root():
-    """Serve the main interface."""
-    html_content = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Video Anomaly Detection</title>
-        <style>
-            body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-            .upload-area { border: 2px dashed #ccc; padding: 40px; text-align: center; margin: 20px 0; }
-            .results { background: #f5f5f5; padding: 20px; margin: 20px 0; border-radius: 5px; }
-            .metric { display: inline-block; margin: 10px; padding: 10px; background: white; border-radius: 3px; }
-            button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 3px; cursor: pointer; }
-            button:hover { background: #0056b3; }
-            .loading { display: none; }
-            .error { color: #dc3545; }
-        </style>
-    </head>
-    <body>
-        <h1>Video Anomaly Detection</h1>
-        <p>Upload a video file to detect anomalous events using our trained AI model.</p>
-        
-        <div class="upload-area">
-            <input type="file" id="videoFile" accept="video/*" />
-            <br><br>
-            <button onclick="uploadVideo()">Analyze Video</button>
-        </div>
-        
-        <div id="loading" class="loading">
-            <p>Processing video... This may take a few moments.</p>
-        </div>
-        
-        <div id="error" class="error" style="display: none;"></div>
-        
-        <div id="results" class="results" style="display: none;">
-            <h3>Analysis Results</h3>
-            <div id="metrics"></div>
-        </div>
-
-        <script>
-        async function uploadVideo() {
-            const fileInput = document.getElementById('videoFile');
-            const file = fileInput.files[0];
-            
-            if (!file) {
-                showError('Please select a video file');
-                return;
-            }
-            
-            document.getElementById('loading').style.display = 'block';
-            document.getElementById('results').style.display = 'none';
-            document.getElementById('error').style.display = 'none';
-            
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            try {
-                const response = await fetch('/analyze-video', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const result = await response.json();
-                
-                if (response.ok) {
-                    displayResults(result);
-                } else {
-                    showError(result.detail || 'Unknown error occurred');
-                }
-            } catch (error) {
-                showError('Network error: ' + error.message);
-            }
-            
-            document.getElementById('loading').style.display = 'none';
-        }
-        
-        function showError(message) {
-            const errorDiv = document.getElementById('error');
-            errorDiv.textContent = message;
-            errorDiv.style.display = 'block';
-        }
-        
-        function displayResults(result) {
-            const metricsDiv = document.getElementById('metrics');
-            metricsDiv.innerHTML = `
-                <div class="metric"><strong>Total Frames:</strong> ${result.frame_count}</div>
-                <div class="metric"><strong>Anomalies Detected:</strong> ${result.anomaly_count}</div>
-                <div class="metric"><strong>Anomaly Rate:</strong> ${(result.anomaly_rate * 100).toFixed(1)}%</div>
-                <div class="metric"><strong>Processing Time:</strong> ${result.processing_time.toFixed(2)}s</div>
-                <div class="metric"><strong>Device:</strong> ${result.model_info.device}</div>
-                <div class="metric"><strong>Batch Size:</strong> ${result.model_info.batch_size}</div>
-            `;
-            document.getElementById('results').style.display = 'block';
-        }
-        </script>
-    </body>
-    </html>
     """
-    return HTMLResponse(content=html_content)
+    Redirect to API documentation.
+    
+    For the interactive dashboard, visit:
+    https://video-anomaly-detection-dashboard.onrender.com
+    """
+    return RedirectResponse(url="/docs")
 
 
 if __name__ == "__main__":
