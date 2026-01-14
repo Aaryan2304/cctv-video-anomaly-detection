@@ -39,10 +39,12 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
+    CollectorRegistry,
     Counter,
     Gauge,
     Histogram,
     generate_latest,
+    multiprocess,
 )
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -77,38 +79,47 @@ logger = get_logger(__name__)
 # Rate limiter (configured at startup)
 limiter = Limiter(key_func=get_remote_address)
 
-# Prometheus Metrics
+# Prometheus Metrics - use separate registry to avoid multiprocess conflicts
+PROMETHEUS_REGISTRY = CollectorRegistry(auto_describe=True)
+
 REQUEST_COUNT = Counter(
     "anomaly_detection_requests_total",
     "Total number of anomaly detection requests",
     ["endpoint", "status"],
+    registry=PROMETHEUS_REGISTRY,
 )
 REQUEST_LATENCY = Histogram(
     "anomaly_detection_request_latency_seconds",
     "Request latency in seconds",
     ["endpoint"],
     buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
+    registry=PROMETHEUS_REGISTRY,
 )
 FRAMES_PROCESSED = Counter(
     "anomaly_detection_frames_processed_total",
     "Total frames processed",
+    registry=PROMETHEUS_REGISTRY,
 )
 ANOMALIES_DETECTED = Counter(
     "anomaly_detection_anomalies_total",
     "Total anomalies detected",
+    registry=PROMETHEUS_REGISTRY,
 )
 ACTIVE_JOBS = Gauge(
     "anomaly_detection_active_jobs",
     "Number of active background jobs",
+    registry=PROMETHEUS_REGISTRY,
 )
 GPU_MEMORY_USED = Gauge(
     "anomaly_detection_gpu_memory_bytes",
     "GPU memory used in bytes",
+    registry=PROMETHEUS_REGISTRY,
 )
 MODEL_INFERENCE_LATENCY = Histogram(
     "anomaly_detection_inference_latency_seconds",
     "Model inference latency per batch",
     buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
+    registry=PROMETHEUS_REGISTRY,
 )
 
 # Async Job Queue
@@ -497,6 +508,10 @@ async def lifespan(app: FastAPI):
     os.makedirs(_settings.temp_dir, exist_ok=True)
     os.makedirs("logs", exist_ok=True)
     
+    # Mount static files (moved from deprecated @app.on_event)
+    if os.path.isdir(_settings.static_dir):
+        app.mount("/static", StaticFiles(directory=_settings.static_dir), name="static")
+    
     yield
     
     # Shutdown
@@ -543,14 +558,6 @@ async def request_middleware(request: Request, call_next):
     
     response.headers["X-Request-ID"] = request_id
     return response
-
-
-# Mount static files after app creation
-@app.on_event("startup")
-async def mount_static():
-    settings = get_settings()
-    if os.path.isdir(settings.static_dir):
-        app.mount("/static", StaticFiles(directory=settings.static_dir), name="static")
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -688,7 +695,7 @@ async def prometheus_metrics():
     ACTIVE_JOBS.set(active)
     
     return PlainTextResponse(
-        content=generate_latest().decode("utf-8"),
+        content=generate_latest(PROMETHEUS_REGISTRY).decode("utf-8"),
         media_type=CONTENT_TYPE_LATEST,
     )
 

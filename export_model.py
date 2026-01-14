@@ -41,7 +41,8 @@ def load_pytorch_model(model_path: Path, device: torch.device) -> Tuple[Convolut
     model.to(device)
     model.eval()
     
-    threshold = checkpoint.get("threshold", 0.005069)
+    # Handle None or missing threshold
+    threshold = checkpoint.get("threshold") or 0.005069
     
     return model, threshold
 
@@ -50,7 +51,7 @@ def export_to_onnx(
     model: ConvolutionalAutoencoder,
     output_path: Path,
     batch_size: int = 1,
-    dynamic_batch: bool = True,
+    dynamic_batch: bool = False,  # Disabled: model has hardcoded reshape
     opset_version: int = 17,
 ) -> None:
     """
@@ -59,8 +60,9 @@ def export_to_onnx(
     Args:
         model: Trained ConvolutionalAutoencoder
         output_path: Path for exported ONNX file
-        batch_size: Static batch size (ignored if dynamic_batch=True)
-        dynamic_batch: Enable dynamic batch dimension
+        batch_size: Static batch size (used since dynamic_batch disabled)
+        dynamic_batch: Enable dynamic batch dimension (disabled by default - 
+                       model architecture has hardcoded reshape that breaks with variable batch)
         opset_version: ONNX opset version (17 recommended for PyTorch 2.x)
     """
     # Create dummy input matching model's expected shape
@@ -161,8 +163,9 @@ def validate_onnx(onnx_path: Path, pytorch_model: ConvolutionalAutoencoder, atol
     # Create inference session
     session = InferenceSession(str(onnx_path))
     
-    # Test with random input
-    test_input = np.random.randn(4, 1, 64, 64).astype(np.float32)
+    # Test with random input - use batch_size=1 to match export
+    # (model has hardcoded reshape that doesn't support dynamic batch)
+    test_input = np.random.randn(1, 1, 64, 64).astype(np.float32)
     
     # ONNX inference
     onnx_output = session.run(None, {"input": test_input})[0]

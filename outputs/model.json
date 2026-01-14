@@ -1,0 +1,18 @@
+{
+  "source_model": "outputs\\trained_model.pth",
+  "onnx_path": "outputs\\model.onnx",
+  "threshold": 0.005069,
+  "opset_version": 17,
+  "input_shape": [
+    null,
+    1,
+    64,
+    64
+  ],
+  "output_shape": [
+    null,
+    1,
+    64,
+    64
+  ]
+}
